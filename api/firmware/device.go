@@ -4,6 +4,7 @@
 package firmware
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -419,4 +420,25 @@ func (device *Device) SupportsERC20(contractAddress string) bool {
 // SupportsLTC returns true if LTC is supported by the device api.
 func (device *Device) SupportsLTC() bool {
 	return device.isMultiEdition()
+}
+
+func (device *Device) ElectrumEncryptionKey(path []uint32) (string, error) {
+	request := &messages.Request{
+		Request: &messages.Request_ElectrumEncryptionKey{
+			ElectrumEncryptionKey: &messages.ElectrumEncryptionKeyRequest{
+				Keypath: path,
+			},
+		},
+	}
+	response, err := device.query(request)
+	if err != nil {
+		return "", err
+	}
+
+	keyResp := response.GetElectrumEncryptionKey()
+	if keyResp == nil {
+		return "", errors.New("no key response received")
+	}
+
+	return keyResp.Key, nil
 }
