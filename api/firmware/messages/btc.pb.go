@@ -846,8 +846,13 @@ type BTCSignInitRequest struct {
 	// used script configs for outputs that send to an address of the same keystore, but not
 	// necessarily the same account (as defined by `script_configs` above).
 	OutputScriptConfigs []*BTCScriptConfigWithKeypath `protobuf:"bytes,10,rep,name=output_script_configs,json=outputScriptConfigs,proto3" json:"output_script_configs,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// BIP-322: If set, this is a BIP-322 message signing request. The device will
+	// verify the virtual transaction structure and show message-signing UI.
+	// Carries the message from the PSBT global field
+	// PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE (0x09) defined in BIP-322 v1.0.0.
+	Bip322Message []byte `protobuf:"bytes,11,opt,name=bip322_message,json=bip322Message,proto3,oneof" json:"bip322_message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BTCSignInitRequest) Reset() {
@@ -939,6 +944,13 @@ func (x *BTCSignInitRequest) GetContainsSilentPaymentOutputs() bool {
 func (x *BTCSignInitRequest) GetOutputScriptConfigs() []*BTCScriptConfigWithKeypath {
 	if x != nil {
 		return x.OutputScriptConfigs
+	}
+	return nil
+}
+
+func (x *BTCSignInitRequest) GetBip322Message() []byte {
+	if x != nil {
+		return x.Bip322Message
 	}
 	return nil
 }
@@ -2776,7 +2788,7 @@ const file_btc_proto_rawDesc = "" +
 	"\x04TPUB\x10\x02\"\x82\x01\n" +
 	"\x1aBTCScriptConfigWithKeypath\x12J\n" +
 	"\rscript_config\x18\x02 \x01(\v2%.shiftcrypto.bitbox02.BTCScriptConfigR\fscriptConfig\x12\x18\n" +
-	"\akeypath\x18\x03 \x03(\rR\akeypath\"\xbd\x04\n" +
+	"\akeypath\x18\x03 \x03(\rR\akeypath\"\xfc\x04\n" +
 	"\x12BTCSignInitRequest\x121\n" +
 	"\x04coin\x18\x01 \x01(\x0e2\x1d.shiftcrypto.bitbox02.BTCCoinR\x04coin\x12W\n" +
 	"\x0escript_configs\x18\x02 \x03(\v20.shiftcrypto.bitbox02.BTCScriptConfigWithKeypathR\rscriptConfigs\x12\x18\n" +
@@ -2790,11 +2802,13 @@ const file_btc_proto_rawDesc = "" +
 	"formatUnit\x12E\n" +
 	"\x1fcontains_silent_payment_outputs\x18\t \x01(\bR\x1ccontainsSilentPaymentOutputs\x12d\n" +
 	"\x15output_script_configs\x18\n" +
-	" \x03(\v20.shiftcrypto.bitbox02.BTCScriptConfigWithKeypathR\x13outputScriptConfigs\"\"\n" +
+	" \x03(\v20.shiftcrypto.bitbox02.BTCScriptConfigWithKeypathR\x13outputScriptConfigs\x12*\n" +
+	"\x0ebip322_message\x18\v \x01(\fH\x00R\rbip322Message\x88\x01\x01\"\"\n" +
 	"\n" +
 	"FormatUnit\x12\v\n" +
 	"\aDEFAULT\x10\x00\x12\a\n" +
-	"\x03SAT\x10\x01\"\xc2\x04\n" +
+	"\x03SAT\x10\x01B\x11\n" +
+	"\x0f_bip322_message\"\xc2\x04\n" +
 	"\x13BTCSignNextResponse\x12B\n" +
 	"\x04type\x18\x01 \x01(\x0e2..shiftcrypto.bitbox02.BTCSignNextResponse.TypeR\x04type\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\rR\x05index\x12#\n" +
@@ -3074,6 +3088,7 @@ func file_btc_proto_init() {
 		(*BTCPubRequest_XpubType)(nil),
 		(*BTCPubRequest_ScriptConfig)(nil),
 	}
+	file_btc_proto_msgTypes[4].OneofWrappers = []any{}
 	file_btc_proto_msgTypes[7].OneofWrappers = []any{}
 	file_btc_proto_msgTypes[19].OneofWrappers = []any{
 		(*BTCRequest_IsScriptConfigRegistered)(nil),

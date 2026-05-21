@@ -215,6 +215,14 @@ func payloadFromPkScript(pkScript []byte) (messages.BTCOutputType, []byte, error
 	case len(pkScript) > 0 && pkScript[0] == txscript.OP_RETURN:
 		outputType = messages.BTCOutputType_OP_RETURN
 
+		// A naked OP_RETURN (the only byte being 0x6a) is the BIP-322
+		// to_sign output. The firmware accepts an empty payload in
+		// that mode, so we leave payload nil and stop tokenizing
+		// early rather than rejecting it.
+		if len(pkScript) == 1 {
+			break
+		}
+
 		tokenizer := txscript.MakeScriptTokenizer(0, pkScript[1:])
 		if !tokenizer.Next() {
 			return 0, nil, errp.New("naked OP_RETURN is not supported")
@@ -273,6 +281,13 @@ type PSBTSignOptions struct {
 	PaymentRequests []*messages.BTCPaymentRequestRequest
 	// Per-output options. The map key is the output index.
 	Outputs map[int]*PSBTSignOutputOptions
+	// Bip322Message, when non-nil, switches the sign request into
+	// BIP-322 message-signing mode. The PSBT must be the BIP-322
+	// to_sign virtual transaction (version=0, locktime=0, one input
+	// spending the to_spend output, one naked-OP_RETURN output). The
+	// firmware validates the structure and computes the BIP-322
+	// sighash rather than a standard BIP-143/341 sighash.
+	Bip322Message []byte
 }
 
 func (b *PSBTSignOptions) isSilentPayment() bool {
@@ -590,6 +605,7 @@ func newBTCTxFromPSBT(
 		Outputs:         outputs,
 		Locktime:        psbt_.UnsignedTx.LockTime,
 		PaymentRequests: options.PaymentRequests,
+		Bip322Message:   options.Bip322Message,
 	}
 
 	return &psbtConvertResult{

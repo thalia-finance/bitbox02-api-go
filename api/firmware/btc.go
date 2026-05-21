@@ -340,6 +340,12 @@ type BTCTx struct {
 	Outputs         []*messages.BTCSignOutputRequest
 	Locktime        uint32
 	PaymentRequests []*messages.BTCPaymentRequestRequest
+	// Bip322Message, when non-nil, switches the firmware into BIP-322
+	// message-signing mode (see BTCSignInitRequest.bip322_message).
+	// Version must be 0, Locktime must be 0, and there must be one
+	// input + one OP_RETURN output. The firmware uses the BIP-322
+	// sighash instead of the standard BIP-143/341 one.
+	Bip322Message []byte
 }
 
 // BTCSignResult is the result of `BTCSign()`.
@@ -407,6 +413,7 @@ func (device *Device) nonAtomicBTCSign(
 				FormatUnit:                   formatUnit,
 				ContainsSilentPaymentOutputs: containsSilentPaymentOutputs,
 				OutputScriptConfigs:          outputScriptConfigs,
+				Bip322Message:                tx.Bip322Message,
 			}}})
 	if err != nil {
 		return nil, err
@@ -652,12 +659,27 @@ func (device *Device) BTCRegisterScriptConfig(
 
 // BTCSignMessageResult is the result of `BTCSignMessage()`.
 type BTCSignMessageResult struct {
-	// Signature is the 64 byte raw signature.
+	// Signature is the 64 byte raw signature. Only populated for
+	// non-taproot script configs (P2WPKH, P2WPKH-P2SH).
 	Signature []byte
-	// RecID is the recoverable ID.
+	// RecID is the recoverable ID. Only populated for non-taproot
+	// script configs.
 	RecID byte
-	// ElectrumSig65 is the 65 byte signature in Electrum format.
+	// ElectrumSig65 is the 65 byte signature in Electrum format. Only
+	// populated for non-taproot script configs.
 	ElectrumSig65 []byte
+	// Bip322Signature carries the firmware's BIP-322 simple-encoded
+	// signature for P2TR script configs (3-byte ASCII variant prefix
+	// "smp" + a serialized witness containing a single 64-byte
+	// Schnorr signature). For non-taproot script configs this is nil.
+	//
+	// Taproot sign-message uses a different signing path on the
+	// device (`sign_bip322_p2tr` in the firmware): it skips the
+	// anti-klepto handshake and produces a Schnorr signature against
+	// the BIP-322 sighash. The Electrum legacy format doesn't apply,
+	// so the wire bytes are surfaced verbatim for the caller to base
+	// 64-encode or hand directly to a BIP-322 verifier.
+	Bip322Signature []byte
 }
 
 func (device *Device) nonAtomicBTCSignMessage(
@@ -665,19 +687,33 @@ func (device *Device) nonAtomicBTCSignMessage(
 	scriptConfig *messages.BTCScriptConfigWithKeypath,
 	message []byte,
 ) (*BTCSignMessageResult, error) {
-	if isTaproot(scriptConfig) {
-		return nil, errp.New("taproot not supported")
+	taproot := isTaproot(scriptConfig)
+	if taproot && !device.version.AtLeast(semver.NewSemVer(9, 26, 1)) {
+		return nil, UnsupportedError("9.26.1")
 	}
 	if !device.version.AtLeast(semver.NewSemVer(9, 5, 0)) {
 		return nil, UnsupportedError("9.5.0")
 	}
 
-	hostNonce, err := generateHostNonce()
-	if err != nil {
-		return nil, err
-	}
-	hostNonceCommitment := &messages.AntiKleptoHostNonceCommitment{
-		Commitment: antikleptoHostCommit(hostNonce),
+	// The firmware's P2TR sign-message path produces a Schnorr signature
+	// and doesn't engage in the anti-klepto handshake (the nonce is derived
+	// deterministically inside the Schnorr signer). If we send a host-nonce
+	// commitment the firmware still ignores it and replies with the
+	// SignMessage response directly, which would trip the
+	// antiklepto-signer-commitment type assertion below — so skip
+	// antiklepto entirely for taproot.
+	var hostNonceCommitment *messages.AntiKleptoHostNonceCommitment
+	var hostNonce []byte
+
+	if !taproot {
+		var err error
+		hostNonce, err = generateHostNonce()
+		if err != nil {
+			return nil, err
+		}
+		hostNonceCommitment = &messages.AntiKleptoHostNonceCommitment{
+			Commitment: antikleptoHostCommit(hostNonce),
+		}
 	}
 
 	request := &messages.BTCRequest{
@@ -695,32 +731,52 @@ func (device *Device) nonAtomicBTCSignMessage(
 		return nil, err
 	}
 
-	signerCommitment, ok := response.Response.(*messages.BTCResponse_AntikleptoSignerCommitment)
-	if !ok {
-		return nil, errp.New("unexpected response")
-	}
-	response, err = device.nonAtomicQueryBTC(&messages.BTCRequest{
-		Request: &messages.BTCRequest_AntikleptoSignature{
-			AntikleptoSignature: &messages.AntiKleptoSignatureRequest{
-				HostNonce: hostNonce,
+	var signature []byte
+	if !taproot {
+		signerCommitment, ok := response.Response.(*messages.BTCResponse_AntikleptoSignerCommitment)
+		if !ok {
+			return nil, errp.New("unexpected response")
+		}
+		response, err := device.nonAtomicQueryBTC(&messages.BTCRequest{
+			Request: &messages.BTCRequest_AntikleptoSignature{
+				AntikleptoSignature: &messages.AntiKleptoSignatureRequest{
+					HostNonce: hostNonce,
+				},
 			},
-		},
-	})
-	if err != nil {
-		return nil, err
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		signResponse, ok := response.Response.(*messages.BTCResponse_SignMessage)
+		if !ok {
+			return nil, errp.New("unexpected response")
+		}
+		signature = signResponse.SignMessage.Signature
+		err = antikleptoVerify(
+			hostNonce,
+			signerCommitment.AntikleptoSignerCommitment.Commitment,
+			signature[:64],
+		)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		signResponse, ok := response.Response.(*messages.BTCResponse_SignMessage)
+		if !ok {
+			return nil, errp.New("unexpected response")
+		}
+		signature = signResponse.SignMessage.Signature
 	}
 
-	signResponse, ok := response.Response.(*messages.BTCResponse_SignMessage)
-	if !ok {
-		return nil, errp.New("unexpected response")
-	}
-	signature := signResponse.SignMessage.Signature
-	if err := antikleptoVerifyRecoverable(
-		hostNonce,
-		signerCommitment.AntikleptoSignerCommitment.Commitment,
-		signature,
-	); err != nil {
-		return nil, err
+	if taproot {
+		// Firmware returned the BIP-322 simple-encoded signature
+		// verbatim: 3-byte "smp" ASCII prefix + serialized 64-byte
+		// Schnorr witness. The Electrum 65-byte transformation
+		// doesn't apply.
+		return &BTCSignMessageResult{
+			Bip322Signature: signature,
+		}, nil
 	}
 
 	sig, recID := signature[:64], signature[64]
