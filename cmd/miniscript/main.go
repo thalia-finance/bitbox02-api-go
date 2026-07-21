@@ -19,14 +19,14 @@ import (
 	"github.com/BitBoxSwiss/bitbox02-api-go/communication/u2fhid"
 	"github.com/BitBoxSwiss/bitbox02-api-go/communication/u2fhid/hiddevice"
 	"github.com/benma/miniscript-go"
+	"github.com/btcsuite/btcd/address/v2"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/chainhash/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/karalabe/hid"
 )
 
@@ -64,7 +64,7 @@ type policy struct {
 	miniscriptNode *miniscript.AST
 }
 
-func (d *policy) derive(xpubs []string, isChange bool, deriveAddressIndex uint32) ([]multipath, [][]byte, []byte, btcutil.Address, error) {
+func (d *policy) derive(xpubs []string, isChange bool, deriveAddressIndex uint32) ([]multipath, [][]byte, []byte, address.Address, error) {
 	multipaths := make([]multipath, len(xpubs))
 	pubKeys := make([][]byte, len(xpubs))
 
@@ -119,7 +119,7 @@ func (d *policy) derive(xpubs []string, isChange bool, deriveAddressIndex uint32
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	address, err := btcutil.NewAddressWitnessScriptHash(chainhash.HashB(witnessScript), &chaincfg.TestNet3Params)
+	address, err := address.NewAddressWitnessScriptHash(chainhash.HashB(witnessScript), &chaincfg.TestNet3Params)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -265,7 +265,7 @@ func main() {
 
 	// Our test spend is a 1-input 1-output transaction. The input is spends the miniscript
 	// UTXO. The output is an arbitrary output.
-	withdrawToAddress, err := btcutil.DecodeAddress("bc1q77mts6tjfandrmd0wlfceku702n0yfu67ff3ud", &chaincfg.TestNet3Params)
+	withdrawToAddress, err := address.DecodeAddress("bc1q77mts6tjfandrmd0wlfceku702n0yfu67ff3ud", &chaincfg.TestNet3Params)
 	errpanic(err)
 	withdrawToPkScript, err := txscript.PayToAddrScript(withdrawToAddress)
 	errpanic(err)

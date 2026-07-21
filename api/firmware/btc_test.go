@@ -11,8 +11,8 @@ import (
 	"github.com/BitBoxSwiss/bitbox02-api-go/util/semver"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/btcutil/v2/hdkeychain"
+	"github.com/btcsuite/btcd/chainhash/v2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )

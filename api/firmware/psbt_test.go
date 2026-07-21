@@ -9,11 +9,11 @@ import (
 
 	"github.com/BitBoxSwiss/bitbox02-api-go/api/firmware/messages"
 	"github.com/BitBoxSwiss/bitbox02-api-go/util/semver"
-	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/address/v2"
+	"github.com/btcsuite/btcd/chaincfg/v2"
+	"github.com/btcsuite/btcd/psbt/v2"
+	"github.com/btcsuite/btcd/txscript/v2"
+	"github.com/btcsuite/btcd/wire/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -106,7 +106,7 @@ func TestPayloadFromPkScript(t *testing.T) {
 			if tt.pkScriptHex != "" {
 				pkScript = unhex(tt.pkScriptHex)
 			} else {
-				addr, err := btcutil.DecodeAddress(tt.address, &chaincfg.MainNetParams)
+				addr, err := address.DecodeAddress(tt.address, &chaincfg.MainNetParams)
 				require.NoError(t, err)
 				pkScript, err = txscript.PayToAddrScript(addr)
 				require.NoError(t, err)

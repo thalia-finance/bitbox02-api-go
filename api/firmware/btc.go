@@ -12,8 +12,8 @@ import (
 	"github.com/BitBoxSwiss/bitbox02-api-go/api/firmware/messages"
 	"github.com/BitBoxSwiss/bitbox02-api-go/util/errp"
 	"github.com/BitBoxSwiss/bitbox02-api-go/util/semver"
-	"github.com/btcsuite/btcd/btcutil/base58"
-	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcd/address/v2/base58"
+	"github.com/btcsuite/btcd/wire/v2"
 	"google.golang.org/protobuf/proto"
 )
 
