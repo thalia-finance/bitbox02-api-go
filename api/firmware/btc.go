@@ -258,8 +258,14 @@ func (device *Device) nonAtomicNestedQueryBtcSign(request *messages.BTCRequest) 
 }
 
 func isTaproot(sc *messages.BTCScriptConfigWithKeypath) bool {
-	simpleTypeConfig, ok := sc.ScriptConfig.Config.(*messages.BTCScriptConfig_SimpleType_)
-	return ok && simpleTypeConfig.SimpleType == messages.BTCScriptConfig_P2TR
+	switch config := sc.ScriptConfig.Config.(type) {
+	case *messages.BTCScriptConfig_SimpleType_:
+		return config.SimpleType == messages.BTCScriptConfig_P2TR
+	case *messages.BTCScriptConfig_Policy_:
+		return strings.HasPrefix(config.Policy.GetPolicy(), "tr(")
+	default:
+		return false
+	}
 }
 
 // BTCSignNeedsPrevTxs returns true if the PrevTx field in BTCTxInput needs to be populated before

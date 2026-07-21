@@ -35,7 +35,136 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func runSimulator(filename string) (func() error, *Device, *bytes.Buffer, error) {
+type simulatorStdout struct {
+	mu        sync.Mutex
+	cond      *sync.Cond
+	buffer    bytes.Buffer
+	lastWrite time.Time
+	closed    bool
+	scanErr   error
+}
+
+func newSimulatorStdout() *simulatorStdout {
+	stdout := &simulatorStdout{}
+	stdout.cond = sync.NewCond(&stdout.mu)
+	return stdout
+}
+
+func (stdout *simulatorStdout) writeLine(line []byte) {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	_, _ = stdout.buffer.Write(line)
+	_ = stdout.buffer.WriteByte('\n')
+	stdout.lastWrite = time.Now()
+	stdout.cond.Broadcast()
+}
+
+func (stdout *simulatorStdout) WriteString(value string) (int, error) {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	written, err := stdout.buffer.WriteString(value)
+	stdout.lastWrite = time.Now()
+	stdout.cond.Broadcast()
+	return written, err
+}
+
+func (stdout *simulatorStdout) String() string {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	return stdout.buffer.String()
+}
+
+func (stdout *simulatorStdout) checkpoint() int {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	return stdout.buffer.Len()
+}
+
+func (stdout *simulatorStdout) snapshot(checkpoint int) (string, error) {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	return stdout.snapshotLocked(checkpoint)
+}
+
+func (stdout *simulatorStdout) snapshotLocked(checkpoint int) (string, error) {
+	if checkpoint < 0 || checkpoint > stdout.buffer.Len() {
+		return "", fmt.Errorf(
+			"simulator stdout checkpoint %d exceeds stdout length %d",
+			checkpoint,
+			stdout.buffer.Len(),
+		)
+	}
+	return string(stdout.buffer.Bytes()[checkpoint:]), nil
+}
+
+// wait returns once ready matches and stdout has remained unchanged for stableFor.
+func (stdout *simulatorStdout) wait(
+	checkpoint int,
+	ready func(string) bool,
+	stableFor time.Duration,
+	timeout time.Duration,
+) (string, error) {
+	started := time.Now()
+	deadline := started.Add(timeout)
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+
+	for {
+		snapshot, err := stdout.snapshotLocked(checkpoint)
+		if err != nil {
+			return "", err
+		}
+		now := time.Now()
+		isReady := ready(snapshot)
+		stableSince := started
+		if stdout.lastWrite.After(stableSince) {
+			stableSince = stdout.lastWrite
+		}
+		if isReady && (stdout.closed || now.Sub(stableSince) >= stableFor) {
+			return snapshot, nil
+		}
+		if stdout.closed {
+			if stdout.scanErr != nil {
+				return "", fmt.Errorf("simulator stdout closed: %w", stdout.scanErr)
+			}
+			return "", errors.New("simulator stdout closed before expected output")
+		}
+		if !now.Before(deadline) {
+			return "", fmt.Errorf("timed out waiting for simulator stdout after %s", timeout)
+		}
+
+		wakeAt := deadline
+		if isReady {
+			stableAt := stableSince.Add(stableFor)
+			if stableAt.Before(wakeAt) {
+				wakeAt = stableAt
+			}
+		}
+		timer := time.AfterFunc(time.Until(wakeAt), func() {
+			stdout.mu.Lock()
+			stdout.cond.Broadcast()
+			stdout.mu.Unlock()
+		})
+		stdout.cond.Wait()
+		timer.Stop()
+	}
+}
+
+func (stdout *simulatorStdout) waitUntilStable(stableFor time.Duration, timeout time.Duration) error {
+	checkpoint := stdout.checkpoint()
+	_, err := stdout.wait(checkpoint, func(string) bool { return true }, stableFor, timeout)
+	return err
+}
+
+func (stdout *simulatorStdout) close(scanErr error) {
+	stdout.mu.Lock()
+	defer stdout.mu.Unlock()
+	stdout.closed = true
+	stdout.scanErr = scanErr
+	stdout.cond.Broadcast()
+}
+
+func runSimulator(filename string) (func() error, *Device, *simulatorStdout, error) {
 	cmd := exec.Command("stdbuf", "-oL", filename)
 
 	// Create pipe before starting process
@@ -47,13 +176,15 @@ func runSimulator(filename string) (func() error, *Device, *bytes.Buffer, error)
 		return nil, nil, nil, err
 	}
 
-	var stdoutBuf bytes.Buffer
+	stdoutBuf := newSimulatorStdout()
+	scannerDone := make(chan struct{})
 	scanner := bufio.NewScanner(stdout)
 	go func() {
+		defer close(scannerDone)
 		for scanner.Scan() {
-			stdoutBuf.Write(scanner.Bytes())
-			stdoutBuf.WriteByte('\n')
+			stdoutBuf.writeLine(scanner.Bytes())
 		}
+		stdoutBuf.close(scanner.Err())
 	}()
 
 	var conn net.Conn
@@ -65,6 +196,9 @@ func runSimulator(filename string) (func() error, *Device, *bytes.Buffer, error)
 		time.Sleep(10 * time.Millisecond)
 	}
 	if err != nil {
+		_ = cmd.Process.Kill()
+		<-scannerDone
+		_ = cmd.Wait()
 		return nil, nil, nil, err
 	}
 	const bitboxCMD = 0x80 + 0x40 + 0x01
@@ -74,11 +208,15 @@ func runSimulator(filename string) (func() error, *Device, *bytes.Buffer, error)
 		&mocks.Config{}, communication, &mocks.Logger{},
 	)
 	return func() error {
-		if err := conn.Close(); err != nil {
-			return err
+		connErr := conn.Close()
+		killErr := cmd.Process.Kill()
+		<-scannerDone
+		_ = cmd.Wait()
+		if errors.Is(killErr, os.ErrProcessDone) {
+			killErr = nil
 		}
-		return cmd.Process.Kill()
-	}, device, &stdoutBuf, nil
+		return errors.Join(connErr, killErr)
+	}, device, stdoutBuf, nil
 }
 
 // Download BitBox simulators based on testdata/simulators.json to testdata/simulators/*.
@@ -190,7 +328,7 @@ func downloadSimulators() ([]string, error) {
 var downloadSimulatorsOnce = sync.OnceValues(downloadSimulators)
 
 // Runs tests against a simulator which is not initialized (not paired, not seeded).
-func testSimulators(t *testing.T, run func(*testing.T, *Device, *bytes.Buffer)) {
+func testSimulators(t *testing.T, run func(*testing.T, *Device, *simulatorStdout)) {
 	t.Helper()
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		t.Skip("Skipping simulator tests: not running on linux-amd64")
@@ -217,9 +355,9 @@ func testSimulators(t *testing.T, run func(*testing.T, *Device, *bytes.Buffer)) 
 }
 
 // Runs tests against a simulator which is not initialized, but paired (not seeded).
-func testSimulatorsAfterPairing(t *testing.T, run func(*testing.T, *Device, *bytes.Buffer)) {
+func testSimulatorsAfterPairing(t *testing.T, run func(*testing.T, *Device, *simulatorStdout)) {
 	t.Helper()
-	testSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		require.NoError(t, device.Init())
 		device.ChannelHashVerify(true)
@@ -230,9 +368,9 @@ func testSimulatorsAfterPairing(t *testing.T, run func(*testing.T, *Device, *byt
 // Runs tests againt a simulator that is seeded with this mnemonic: boring mistake dish oyster truth
 // pigeon viable emerge sort crash wire portion cannon couple enact box walk height pull today solid
 // off enable tide
-func testInitializedSimulators(t *testing.T, run func(*testing.T, *Device, *bytes.Buffer)) {
+func testInitializedSimulators(t *testing.T, run func(*testing.T, *Device, *simulatorStdout)) {
 	t.Helper()
-	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		require.NoError(t, device.RestoreFromMnemonic())
 		run(t, device, stdOut)
@@ -240,7 +378,7 @@ func testInitializedSimulators(t *testing.T, run func(*testing.T, *Device, *byte
 }
 
 func TestSimulatorRootFingerprint(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		fp, err := device.RootFingerprint()
 		require.NoError(t, err)
@@ -520,7 +658,7 @@ func TestVersion(t *testing.T) {
 }
 
 func TestSimulatorProduct(t *testing.T) {
-	testSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		require.NoError(t, device.Init())
 		// Since v9.24.0, the simulator simulates a Nova device.

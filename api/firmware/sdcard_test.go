@@ -3,14 +3,13 @@
 package firmware
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestSimulatorCheckSDCard(t *testing.T) {
-	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		inserted, err := device.CheckSDCard()
 		require.NoError(t, err)
@@ -20,7 +19,7 @@ func TestSimulatorCheckSDCard(t *testing.T) {
 }
 
 func TestSimutorInsertSDCard(t *testing.T) {
-	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		require.NoError(t, device.InsertSDCard())
 	})
