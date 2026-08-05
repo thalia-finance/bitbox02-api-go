@@ -52,6 +52,65 @@ func TestAntikleptoVerify(t *testing.T) {
 	}
 }
 
+func TestAntikleptoVerifyRejectsInvalidSignatures(t *testing.T) {
+	hostNonce := unhex("8b4c26aa2695a34bdbc34235f6c91be14b93037a063b13f7c814101359561092")
+	signerCommitment := unhex("0236ff92fe02c08d0d04851e0ce1516104085215f05a178307de60ea53e207f971")
+	valid := unhex("7fd66b48ffea2fe048869880bbb3a1819e262af14980e8885df1e5765750cb8f47e01eca356377870356d54853573a955076228e5044cd3dd3a049abe70d5585")
+	require.NoError(t, antikleptoVerify(hostNonce, signerCommitment, valid))
+
+	highS := unhex("7fd66b48ffea2fe048869880bbb3a1819e262af14980e8885df1e5765750cb8fb81fe135ca9c8878fca92ab7aca8c5696a38ba585f03d2fdec3214e0e928ebbc")
+	require.ErrorContains(
+		t,
+		antikleptoVerify(hostNonce, signerCommitment, highS),
+		"S is not in low-S form",
+	)
+
+	order := make([]byte, 32)
+	btcec.S256().N.FillBytes(order)
+	replaceScalar := func(offset int, scalar []byte) []byte {
+		signature := append([]byte(nil), valid...)
+		copy(signature[offset:offset+32], scalar)
+		return signature
+	}
+
+	for _, signature := range [][]byte{
+		valid[:compactECDSASignatureLen-1],
+		append(append([]byte(nil), valid...), 0),
+		replaceScalar(0, make([]byte, 32)),
+		replaceScalar(0, order),
+		replaceScalar(32, make([]byte, 32)),
+		replaceScalar(32, order),
+	} {
+		require.Error(t, antikleptoVerify(hostNonce, signerCommitment, signature))
+	}
+}
+
+func TestAntikleptoVerifyRecoverable(t *testing.T) {
+	hostNonce := unhex("8b4c26aa2695a34bdbc34235f6c91be14b93037a063b13f7c814101359561092")
+	signerCommitment := unhex("0236ff92fe02c08d0d04851e0ce1516104085215f05a178307de60ea53e207f971")
+	signature := append(
+		unhex("7fd66b48ffea2fe048869880bbb3a1819e262af14980e8885df1e5765750cb8f47e01eca356377870356d54853573a955076228e5044cd3dd3a049abe70d5585"),
+		0,
+	)
+	require.NoError(t, antikleptoVerifyRecoverable(hostNonce, signerCommitment, signature))
+
+	require.ErrorContains(
+		t,
+		antikleptoVerifyRecoverable(hostNonce, signerCommitment, signature[:64]),
+		"must be 65 bytes",
+	)
+
+	signature[compactECDSASignatureLen] = 3
+	require.NoError(t, antikleptoVerifyRecoverable(hostNonce, signerCommitment, signature))
+
+	signature[compactECDSASignatureLen] = 4
+	require.ErrorContains(
+		t,
+		antikleptoVerifyRecoverable(hostNonce, signerCommitment, signature),
+		"recovery ID",
+	)
+}
+
 func TestDLEQVerify(t *testing.T) {
 	// secret key sk=077eb75a52eca24cdedf058c92f1ca8b9d4841771fd6baa3d27885fb5b49fba2
 	// is the secret key in pubKey=sk*G and otherPubKey=sk*otherBase.

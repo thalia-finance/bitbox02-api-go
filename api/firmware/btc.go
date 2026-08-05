@@ -472,6 +472,11 @@ func (device *Device) nonAtomicBTCSign(
 				if !next.HasSignature {
 					return nil, errp.New("unexpected response; expected signature")
 				}
+				if !inputIsSchnorr && !performAntiklepto {
+					if err := validateCompactECDSASignature(next.Signature); err != nil {
+						return nil, err
+					}
+				}
 				signatures[inputIndex] = next.Signature
 			}
 
@@ -710,12 +715,11 @@ func (device *Device) nonAtomicBTCSignMessage(
 		return nil, errp.New("unexpected response")
 	}
 	signature := signResponse.SignMessage.Signature
-	err = antikleptoVerify(
+	if err := antikleptoVerifyRecoverable(
 		hostNonce,
 		signerCommitment.AntikleptoSignerCommitment.Commitment,
-		signature[:64],
-	)
-	if err != nil {
+		signature,
+	); err != nil {
 		return nil, err
 	}
 
