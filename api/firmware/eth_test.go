@@ -4,7 +4,6 @@ package firmware
 
 import (
 	"bytes"
-	"encoding/json"
 	"math/big"
 	"testing"
 
@@ -69,7 +68,7 @@ var eip712Msg = []byte(`
     }
 }`)
 
-func parseTypeNoErr(t *testing.T, typ string, types map[string]interface{}) *messages.ETHSignTypedMessageRequest_MemberType {
+func parseTypeNoErr(t *testing.T, typ string, types map[string][]ethTypedMessageMember) *messages.ETHSignTypedMessageRequest_MemberType {
 	t.Helper()
 	parsed, err := parseType(typ, types)
 	require.NoError(t, err)
@@ -81,7 +80,7 @@ func TestParseType(t *testing.T) {
 		&messages.ETHSignTypedMessageRequest_MemberType{
 			Type: messages.ETHSignTypedMessageRequest_STRING,
 		},
-		parseTypeNoErr(t, "string", nil),
+		parseTypeNoErr(t, ethTypedMessageStringType, nil),
 	)
 
 	// Bytes.
@@ -228,9 +227,58 @@ func TestParseType(t *testing.T) {
 			Type:       messages.ETHSignTypedMessageRequest_STRUCT,
 			StructName: "Person",
 		},
-		parseTypeNoErr(t, "Person", map[string]interface{}{"Person": nil}),
+		parseTypeNoErr(t, "Person", map[string][]ethTypedMessageMember{"Person": {}}),
 	)
 
+	_, err = parseType("string]", nil)
+	require.Error(t, err)
+}
+
+func TestParseTypedMessageRejectsMalformedStructure(t *testing.T) {
+	for _, jsonMsg := range []string{
+		`{}`,
+		`{"types":[],"primaryType":"Message","domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":null},"primaryType":"EIP712Domain","domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[]},"domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[]},"primaryType":null,"domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[{"type":"string"}]},"primaryType":"EIP712Domain","domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[{"name":null,"type":"string"}]},"primaryType":"EIP712Domain","domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[null]},"primaryType":"EIP712Domain","domain":{},"message":{}}`,
+		`{"types":{"EIP712Domain":[{"name":"name"}]},"primaryType":"EIP712Domain","domain":{},"message":{}}`,
+	} {
+		_, _, err := parseTypedMessage([]byte(jsonMsg))
+		require.Error(t, err)
+	}
+}
+
+func TestParseTypedMessageUsesExactFieldNames(t *testing.T) {
+	msg, _, err := parseTypedMessage([]byte(`{
+		"types": {
+			"EIP712Domain": [],
+			"Message": [{
+				"name": "value",
+				"Name": "wrongName",
+				"type": "string",
+				"Type": "bytes"
+			}]
+		},
+		"Types": {"Broken": null},
+		"primaryType": "Message",
+		"PrimaryType": "Wrong",
+		"domain": {"name": "expected"},
+		"Domain": {"name": "wrong"},
+		"message": {"value": "expected"},
+		"Message": {"value": "wrong"}
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, "Message", msg.PrimaryType)
+	require.Equal(t, map[string]interface{}{"name": "expected"}, msg.Domain)
+	require.Equal(t, map[string]interface{}{"value": "expected"}, msg.Message)
+	require.Equal(t,
+		[]ethTypedMessageMember{{Name: "value", Type: ethTypedMessageStringType}},
+		msg.Types["Message"],
+	)
+	require.NotContains(t, msg.Types, "Broken")
 }
 
 func TestEncodeValue(t *testing.T) {
@@ -258,7 +306,7 @@ func TestEncodeValue(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte("\xff\x4e\x27\xb4\x84"), encoded)
 
-	encoded, err = encodeValue(parseTypeNoErr(t, "string", nil), "foo")
+	encoded, err = encodeValue(parseTypeNoErr(t, ethTypedMessageStringType, nil), "foo")
 	require.NoError(t, err)
 	require.Equal(t, []byte("foo"), encoded)
 
@@ -284,6 +332,16 @@ func TestEncodeValue(t *testing.T) {
 	encoded, err = encodeValue(parseTypeNoErr(t, "uint8[]", nil), make([]interface{}, 1000))
 	require.NoError(t, err)
 	require.Equal(t, []byte("\x00\x00\x03\xe8"), encoded)
+
+	for _, test := range []struct {
+		typ   string
+		value interface{}
+	}{
+		{"bytes", true}, {"bool", "true"}, {ethTypedMessageStringType, true}, {"string[]", true},
+	} {
+		_, err := encodeValue(parseTypeNoErr(t, test.typ, nil), test.value)
+		require.Error(t, err, test.typ)
+	}
 }
 
 func TestHandleETHDataStreamingOutOfBounds(t *testing.T) {
@@ -303,8 +361,7 @@ func TestHandleETHDataStreamingOutOfBounds(t *testing.T) {
 }
 
 func TestGetValueReturnsType(t *testing.T) {
-	var msg map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(`
+	msg, _, err := parseTypedMessage([]byte(`
 {
 	"types": {
 		"EIP712Domain": [{ "name": "name", "type": "string" }],
@@ -319,7 +376,8 @@ func TestGetValueReturnsType(t *testing.T) {
 		"contents": "hello",
 		"payload": "0xaabb"
 	}
-}`), &msg))
+}`))
+	require.NoError(t, err)
 
 	value, dataType, err := getValue(&messages.ETHTypedMessageValueResponse{
 		RootObject: messages.ETHTypedMessageValueResponse_DOMAIN,
@@ -336,6 +394,32 @@ func TestGetValueReturnsType(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []byte{0xaa, 0xbb}, value)
 	require.Equal(t, messages.ETHSignTypedMessageRequest_BYTES, dataType)
+}
+
+func TestGetValueRejectsMalformedValues(t *testing.T) {
+	msg, _, err := parseTypedMessage(eip712Msg)
+	require.NoError(t, err)
+
+	getErr := func(root messages.ETHTypedMessageValueResponse_RootObject, path ...uint32) error {
+		_, _, err := getValue(&messages.ETHTypedMessageValueResponse{RootObject: root, Path: path}, msg)
+		return err
+	}
+
+	msg.Message["from"] = []interface{}{}
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_MESSAGE, 0, 0), "expected struct value to be an object")
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_MESSAGE, 99), "struct member index out of bounds")
+
+	delete(msg.Domain, "chainId")
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_DOMAIN, 2), `typed data value "chainId" is missing`)
+
+	msg.Domain["name"] = float64(1)
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_DOMAIN, 0), "expected string value")
+
+	msg.Message["attachments"] = map[string]interface{}{}
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_MESSAGE, 3, 0), "expected array value")
+
+	msg.Message["attachments"] = []interface{}{}
+	require.ErrorContains(t, getErr(messages.ETHTypedMessageValueResponse_MESSAGE, 3, 0), "array index out of bounds")
 }
 
 func TestETHSignTypedMessageRejectsLargeString(t *testing.T) {
