@@ -474,13 +474,13 @@ func TestBTCSignMessage(t *testing.T) {
 			},
 			[]byte("message"),
 		)
-		if env.version.AtLeast(semver.NewSemVer(9, 2, 0)) {
+		if env.version.AtLeast(semver.NewSemVer(9, 5, 0)) {
 			require.NoError(t, err)
 			require.Equal(t, expectedSig[:64], result.Signature)
 			require.Equal(t, byte(0), result.RecID)
 			require.Equal(t, result.ElectrumSig65, append([]byte{31}, expectedSig[:64]...))
 		} else {
-			require.EqualError(t, err, UnsupportedError("9.2.0").Error())
+			require.EqualError(t, err, UnsupportedError("9.5.0").Error())
 		}
 	})
 }

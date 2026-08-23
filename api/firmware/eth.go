@@ -191,8 +191,8 @@ func ETHIdentifyCase(recipientAddress string) messages.ETHAddressCase {
 }
 
 // ETHSign signs an ethereum transaction. It returns a 65 byte signature (R, S,
-// and 1 byte recID). If len(data) > 6144, firmware v9.26.0 or newer is
-// required.
+// and 1 byte recID). Firmware v9.5.0 or newer is required to ensure anti-klepto protection. If
+// len(data) > 6144, firmware v9.26.0 or newer is required.
 func (device *Device) ETHSign(
 	chainID uint64,
 	keypath []uint32,
@@ -229,21 +229,17 @@ func (device *Device) nonAtomicETHSign(
 	data []byte,
 	recipientAddressCase messages.ETHAddressCase,
 ) ([]byte, error) {
-	supportsAntiklepto := device.version.AtLeast(semver.NewSemVer(9, 5, 0))
+	if !device.version.AtLeast(semver.NewSemVer(9, 5, 0)) {
+		return nil, UnsupportedError("9.5.0")
+	}
 	useStreaming := len(data) > ethStreamingThreshold
 	if useStreaming && !device.version.AtLeast(semver.NewSemVer(9, 26, 0)) {
 		return nil, UnsupportedError("9.26.0")
 	}
 
-	var hostNonceCommitment *messages.AntiKleptoHostNonceCommitment
-	var err error
-	var hostNonce []byte
-
-	if supportsAntiklepto {
-		hostNonceCommitment, hostNonce, err = handleHostNonceCommitment()
-		if err != nil {
-			return nil, err
-		}
+	hostNonceCommitment, hostNonce, err := handleHostNonceCommitment()
+	if err != nil {
+		return nil, err
 	}
 
 	coin, err := device.ethCoin(chainID)
@@ -285,14 +281,7 @@ func (device *Device) nonAtomicETHSign(
 		}
 	}
 
-	if supportsAntiklepto {
-		return device.nonAtomicHandleSignerNonceCommitment(response, hostNonce)
-	}
-	signResponse, ok := response.Response.(*messages.ETHResponse_Sign)
-	if !ok {
-		return nil, errp.New("unexpected response")
-	}
-	return signResponse.Sign.Signature, nil
+	return device.nonAtomicHandleSignerNonceCommitment(response, hostNonce)
 }
 
 // ETHSignEIP1559 signs an ethereum EIP1559 transaction. It returns a 65 byte
@@ -395,7 +384,8 @@ func (device *Device) nonAtomicETHSignEIP1559(
 // ETHSignMessage signs an Ethereum message. The provided msg will be prefixed with "\x19Ethereum
 // Signed Message\n" + len(msg) in the hardware, e.g. "\x19Ethereum Signed dMessage\n5hello" (yes, the len prefix is the
 // ascii representation with no fixed size or delimiter, WTF).
-// 27 is added to the recID to denote an uncompressed pubkey.
+// 27 is added to the recID to denote an uncompressed pubkey. Firmware v9.5.0 or newer is required
+// to ensure anti-klepto protection.
 func (device *Device) ETHSignMessage(
 	chainID uint64,
 	keypath []uint32,
@@ -414,20 +404,16 @@ func (device *Device) nonAtomicETHSignMessage(
 	if len(msg) > 1024 {
 		return nil, errp.New("message too large")
 	}
+	if !device.version.AtLeast(semver.NewSemVer(9, 5, 0)) {
+		return nil, UnsupportedError("9.5.0")
+	}
 
-	supportsAntiklepto := device.version.AtLeast(semver.NewSemVer(9, 5, 0))
-	var hostNonceCommitment *messages.AntiKleptoHostNonceCommitment
-	var hostNonce []byte
-
-	if supportsAntiklepto {
-		var err error
-		hostNonce, err = generateHostNonce()
-		if err != nil {
-			return nil, err
-		}
-		hostNonceCommitment = &messages.AntiKleptoHostNonceCommitment{
-			Commitment: antikleptoHostCommit(hostNonce),
-		}
+	hostNonce, err := generateHostNonce()
+	if err != nil {
+		return nil, err
+	}
+	hostNonceCommitment := &messages.AntiKleptoHostNonceCommitment{
+		Commitment: antikleptoHostCommit(hostNonce),
 	}
 
 	coin, err := device.ethCoin(chainID)
@@ -450,24 +436,12 @@ func (device *Device) nonAtomicETHSignMessage(
 		return nil, err
 	}
 
-	if supportsAntiklepto {
-		signature, err := device.nonAtomicHandleSignerNonceCommitment(response, hostNonce)
-		if err != nil {
-			return nil, err
-		}
-		// 27 is the magic constant to add to the recoverable ID to denote an uncompressed pubkey.
-		signature[64] += 27
-		return signature, nil
+	signature, err := device.nonAtomicHandleSignerNonceCommitment(response, hostNonce)
+	if err != nil {
+		return nil, err
 	}
-
-	signResponse, ok := response.Response.(*messages.ETHResponse_Sign)
-	if !ok {
-		return nil, errp.New("unexpected response")
-	}
-	signature := signResponse.Sign.Signature
 	// 27 is the magic constant to add to the recoverable ID to denote an uncompressed pubkey.
 	signature[64] += 27
-
 	return signature, nil
 }
 
