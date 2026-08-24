@@ -3,7 +3,6 @@
 package firmware
 
 import (
-	"bytes"
 	"fmt"
 	"testing"
 
@@ -13,7 +12,7 @@ import (
 )
 
 func TestSimulatorDeviceName(t *testing.T) {
-	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		info, err := device.DeviceInfo()
 		require.NoError(t, err)
@@ -38,7 +37,7 @@ func TestSimulatorDeviceName(t *testing.T) {
 func TestSimulatorSetPassword(t *testing.T) {
 	for _, seedLen := range []int{16, 32} {
 		t.Run(fmt.Sprintf("seedLen=%d", seedLen), func(t *testing.T) {
-			testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+			testSimulatorsAfterPairing(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 				t.Helper()
 				require.NoError(t, device.SetPassword(seedLen))
 				require.Equal(t, StatusSeeded, device.Status())
@@ -48,7 +47,7 @@ func TestSimulatorSetPassword(t *testing.T) {
 }
 
 func TestSimulatorChangePassword(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		err := device.ChangePassword()
 		if device.Version().AtLeast(semver.NewSemVer(9, 25, 0)) {

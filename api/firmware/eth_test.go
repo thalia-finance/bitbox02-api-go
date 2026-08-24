@@ -472,7 +472,7 @@ func TestETHSignTypedMessageRejectsLargeString(t *testing.T) {
 }
 
 func TestSimulatorETHPub(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		chainID := uint64(1)
 		xpub, err := device.ETHPub(
@@ -515,7 +515,7 @@ func TestSimulatorETHPub(t *testing.T) {
 }
 
 func TestSimulatorETHSignMessage(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		chainID := uint64(1)
 		keypath := []uint32{
@@ -540,7 +540,7 @@ func TestSimulatorETHSignMessage(t *testing.T) {
 }
 
 func TestSimulatorETHSignTypedMessage(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		sig, err := device.ETHSignTypedMessage(
 			1,
@@ -560,7 +560,7 @@ func TestSimulatorETHSignTypedMessage(t *testing.T) {
 }
 
 func TestSimulatorETHSignTypedMessageAntikleptoEnabled(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		keypath := []uint32{
 			44 + hardenedKeyStart,
@@ -582,7 +582,7 @@ func TestSimulatorETHSignTypedMessageAntikleptoEnabled(t *testing.T) {
 }
 
 func TestSimulatorETHSignTypedMessageAntikleptoDisabled(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		keypath := []uint32{
 			44 + hardenedKeyStart,
@@ -610,7 +610,7 @@ func TestSimulatorETHSignTypedMessageAntikleptoDisabled(t *testing.T) {
 }
 
 func TestSimulatorETHSign(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		chainID := uint64(1)
 		keypath := []uint32{
@@ -645,7 +645,7 @@ func TestSimulatorETHSign(t *testing.T) {
 }
 
 func TestSimulatorETHSignStreaming(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		if !device.Version().AtLeast(semver.NewSemVer(9, 26, 0)) {
 			t.Skip("requires firmware >= 9.26.0")
@@ -675,7 +675,7 @@ func TestSimulatorETHSignStreaming(t *testing.T) {
 }
 
 func TestSimulatorETHSignEIP1559(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		chainID := uint64(1)
 		keypath := []uint32{
@@ -713,7 +713,7 @@ func TestSimulatorETHSignEIP1559(t *testing.T) {
 }
 
 func TestSimulatorETHSignEIP1559Streaming(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		if !device.Version().AtLeast(semver.NewSemVer(9, 26, 0)) {
 			t.Skip("requires firmware >= 9.26.0")
@@ -745,7 +745,7 @@ func TestSimulatorETHSignEIP1559Streaming(t *testing.T) {
 }
 
 func TestSimulatorETHSignTypedMessageStreamingBytes(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 
 		sig, err := device.ETHSignTypedMessage(

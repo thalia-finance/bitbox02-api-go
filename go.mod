@@ -10,7 +10,6 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.2.0
 	github.com/btcsuite/btcd/btcutil/psbt v1.2.0
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0
-	github.com/davecgh/go-spew v1.1.1
 	github.com/flynn/noise v1.1.0
 	github.com/karalabe/hid v1.0.1-0.20240306101548-573246063e52
 	github.com/pkg/errors v0.9.1
@@ -22,6 +21,7 @@ require (
 require (
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/btcsuite/btclog v1.0.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/kcalvinalvin/anet v0.0.0-20251112173137-d8ddc1f6dbee // indirect

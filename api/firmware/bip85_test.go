@@ -3,7 +3,6 @@
 package firmware
 
 import (
-	"bytes"
 	"encoding/hex"
 	"testing"
 
@@ -16,7 +15,7 @@ func TestSimulatorBIP85AppBip39(t *testing.T) {
 }
 
 func TestSimulatorBIP85AppLN(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		entropy, err := device.BIP85AppLN()
 		require.NoError(t, err)

@@ -195,7 +195,7 @@ func TestBitBoxSyncHostSideValidation(t *testing.T) {
 }
 
 func TestSimulatorBitBoxSyncIdentity(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		if !device.Version().AtLeast(bitBoxSyncMinVersion) {
 			identity, err := device.BitBoxSyncIdentity()
@@ -214,7 +214,7 @@ func TestSimulatorBitBoxSyncIdentity(t *testing.T) {
 }
 
 func TestSimulatorBitBoxSyncSignaturesAndUnwrap(t *testing.T) {
-	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *bytes.Buffer) {
+	testInitializedSimulators(t, func(t *testing.T, device *Device, stdOut *simulatorStdout) {
 		t.Helper()
 		challenge := bytes.Repeat([]byte{0x42}, bitBoxSyncChallengeLength)
 		namespaceID := bytes.Repeat([]byte{0x11}, bitBoxSyncNamespaceIDLen)
