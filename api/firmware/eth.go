@@ -135,10 +135,10 @@ func (device *Device) nonAtomicHandleSignerNonceCommitment(
 		return nil, errp.New("unexpected response")
 	}
 	signature := signResponse.Sign.Signature
-	err = antikleptoVerify(
+	err = antikleptoVerifyRecoverable(
 		hostNonce,
 		signerCommitment.AntikleptoSignerCommitment.Commitment,
-		signature[:64],
+		signature,
 	)
 	if err != nil {
 		return nil, err
@@ -899,6 +899,9 @@ func (device *Device) nonAtomicETHSignTypedMessage(
 		return nil, errp.New("unexpected response")
 	}
 	signature := signResponse.Sign.Signature
+	if err := validateRecoverableECDSASignature(signature); err != nil {
+		return nil, err
+	}
 	// 27 is the magic constant to add to the recoverable ID to denote an uncompressed pubkey.
 	signature[64] += 27
 	return signature, nil
