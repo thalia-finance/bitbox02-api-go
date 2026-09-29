@@ -346,6 +346,10 @@ type BTCTx struct {
 	// input + one OP_RETURN output. The firmware uses the BIP-322
 	// sighash instead of the standard BIP-143/341 one.
 	Bip322Message []byte
+	// MuSig2 must be set if any input carries a MuSig2 context and selects
+	// the MuSig2 phase of the call. The device's contributions are returned
+	// in BTCSignResult.MuSig2Results.
+	MuSig2 *BTCMuSig2Options
 }
 
 // BTCSignResult is the result of `BTCSign()`.
@@ -355,6 +359,12 @@ type BTCSignResult struct {
 	// GeneratedOutputs contains the outputs generated (silent payments). The map key is the input
 	// index, the map value is the generated pkScript.
 	GeneratedOutputs map[int][]byte
+	// MuSig2SessionID is the session ID the device assigned to the MuSig2 call. After a NONCE
+	// call, it must be passed to the SIGN call.
+	MuSig2SessionID []byte
+	// MuSig2Results contains the device's contribution to each MuSig2 input, keyed by input
+	// index. The Signatures entry of a MuSig2 input is always empty.
+	MuSig2Results map[uint32]*messages.BTCMuSig2Result
 }
 
 func (device *Device) nonAtomicBTCSign(
@@ -400,8 +410,33 @@ func (device *Device) nonAtomicBTCSign(
 		return nil, UnsupportedError("9.22.0")
 	}
 
+	muSig2, err := newMuSig2Session(tx)
+	if err != nil {
+		return nil, err
+	}
+	if muSig2 != nil && !device.SupportsBTCMuSig2() {
+		return nil, UnsupportedError(btcMuSig2MinVersion.String())
+	}
+
+	// Every response can carry a MuSig2 contribution, so all of them are
+	// routed through these.
+	query := func(request proto.Message) (*messages.BTCSignNextResponse, error) {
+		next, err := device.nonAtomicQueryBtcSign(request)
+		if err != nil {
+			return nil, err
+		}
+		return next, muSig2.collect(next)
+	}
+	nestedQuery := func(request *messages.BTCRequest) (*messages.BTCSignNextResponse, error) {
+		next, err := device.nonAtomicNestedQueryBtcSign(request)
+		if err != nil {
+			return nil, err
+		}
+		return next, muSig2.collect(next)
+	}
+
 	signatures := make([][]byte, len(tx.Inputs))
-	next, err := device.nonAtomicQueryBtcSign(&messages.Request{
+	next, err := query(&messages.Request{
 		Request: &messages.Request_BtcSignInit{
 			BtcSignInit: &messages.BTCSignInitRequest{
 				Coin:                         coin,
@@ -414,8 +449,12 @@ func (device *Device) nonAtomicBTCSign(
 				ContainsSilentPaymentOutputs: containsSilentPaymentOutputs,
 				OutputScriptConfigs:          outputScriptConfigs,
 				Bip322Message:                tx.Bip322Message,
+				Musig2:                       muSig2.init(),
 			}}})
 	if err != nil {
+		return nil, err
+	}
+	if err := muSig2.acknowledge(next); err != nil {
 		return nil, err
 	}
 
@@ -428,8 +467,12 @@ func (device *Device) nonAtomicBTCSign(
 
 			inputIsSchnorr := isTaproot(scriptConfigs[input.ScriptConfigIndex])
 
+			// A MuSig2 input yields a MuSig2 contribution instead of a signature, and a
+			// MuSig2 nonce round yields no signature at all.
+			expectSignature := isInputsPass2 && input.Musig2 == nil && !muSig2.nonceRound()
+
 			// Anti-Klepto protocol not supported yet for Schnorr signatures.
-			performAntiklepto := isInputsPass2 && !inputIsSchnorr
+			performAntiklepto := expectSignature && !inputIsSchnorr
 
 			var hostNonce []byte
 			if performAntiklepto {
@@ -442,7 +485,7 @@ func (device *Device) nonAtomicBTCSign(
 					Commitment: antikleptoHostCommit(hostNonce),
 				}
 			}
-			next, err = device.nonAtomicQueryBtcSign(&messages.Request{
+			next, err = query(&messages.Request{
 				Request: &messages.Request_BtcSignInput{
 					BtcSignInput: input,
 				}})
@@ -455,7 +498,7 @@ func (device *Device) nonAtomicBTCSign(
 					return nil, errp.New("unexpected response; expected signer nonce commitment")
 				}
 				signerCommitment := next.AntiKleptoSignerCommitment.Commitment
-				next, err = device.nonAtomicNestedQueryBtcSign(
+				next, err = nestedQuery(
 					&messages.BTCRequest{
 						Request: &messages.BTCRequest_AntikleptoSignature{
 							AntikleptoSignature: &messages.AntiKleptoSignatureRequest{
@@ -475,7 +518,7 @@ func (device *Device) nonAtomicBTCSign(
 					return nil, err
 				}
 			}
-			if isInputsPass2 {
+			if expectSignature {
 				if !next.HasSignature {
 					return nil, errp.New("unexpected response; expected signature")
 				}
@@ -492,7 +535,7 @@ func (device *Device) nonAtomicBTCSign(
 			}
 		case messages.BTCSignNextResponse_PREVTX_INIT:
 			prevtx := tx.Inputs[next.Index].PrevTx
-			next, err = device.nonAtomicNestedQueryBtcSign(
+			next, err = nestedQuery(
 				&messages.BTCRequest{
 					Request: &messages.BTCRequest_PrevtxInit{
 						PrevtxInit: &messages.BTCPrevTxInitRequest{
@@ -508,7 +551,7 @@ func (device *Device) nonAtomicBTCSign(
 			}
 		case messages.BTCSignNextResponse_PREVTX_INPUT:
 			prevtxInput := tx.Inputs[next.Index].PrevTx.Inputs[next.PrevIndex]
-			next, err = device.nonAtomicNestedQueryBtcSign(
+			next, err = nestedQuery(
 				&messages.BTCRequest{
 					Request: &messages.BTCRequest_PrevtxInput{
 						PrevtxInput: prevtxInput,
@@ -519,7 +562,7 @@ func (device *Device) nonAtomicBTCSign(
 			}
 		case messages.BTCSignNextResponse_PREVTX_OUTPUT:
 			prevtxOutput := tx.Inputs[next.Index].PrevTx.Outputs[next.PrevIndex]
-			next, err = device.nonAtomicNestedQueryBtcSign(
+			next, err = nestedQuery(
 				&messages.BTCRequest{
 					Request: &messages.BTCRequest_PrevtxOutput{
 						PrevtxOutput: prevtxOutput,
@@ -530,7 +573,7 @@ func (device *Device) nonAtomicBTCSign(
 			}
 		case messages.BTCSignNextResponse_OUTPUT:
 			outputIndex := next.Index
-			next, err = device.nonAtomicQueryBtcSign(&messages.Request{
+			next, err = query(&messages.Request{
 				Request: &messages.Request_BtcSignOutput{
 					BtcSignOutput: tx.Outputs[outputIndex],
 				}})
@@ -555,7 +598,7 @@ func (device *Device) nonAtomicBTCSign(
 				return nil, errp.New("payment request index out of bounds")
 			}
 			paymentRequest := tx.PaymentRequests[paymentRequestIndex]
-			next, err = device.nonAtomicNestedQueryBtcSign(
+			next, err = nestedQuery(
 				&messages.BTCRequest{
 					Request: &messages.BTCRequest_PaymentRequest{
 						PaymentRequest: paymentRequest,
@@ -565,11 +608,34 @@ func (device *Device) nonAtomicBTCSign(
 			if err != nil {
 				return nil, err
 			}
+		case messages.BTCSignNextResponse_MUSIG2_NONCES:
+			noncesRequest, err := muSig2.noncesRequest(next.Index)
+			if err != nil {
+				return nil, err
+			}
+			next, err = nestedQuery(
+				&messages.BTCRequest{
+					Request: &messages.BTCRequest_Musig2Nonces{
+						Musig2Nonces: noncesRequest,
+					},
+				},
+			)
+			if err != nil {
+				return nil, err
+			}
 		case messages.BTCSignNextResponse_DONE:
-			return &BTCSignResult{
+			if err := muSig2.done(next); err != nil {
+				return nil, err
+			}
+			result := &BTCSignResult{
 				Signatures:       signatures,
 				GeneratedOutputs: generatedOutputs,
-			}, nil
+			}
+			if muSig2 != nil {
+				result.MuSig2SessionID = muSig2.sessionID
+				result.MuSig2Results = muSig2.results
+			}
+			return result, nil
 		default:
 			// Without this, a request type we do not know would be
 			// answered with nothing and loop forever while holding
