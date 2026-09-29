@@ -570,6 +570,12 @@ func (device *Device) nonAtomicBTCSign(
 				Signatures:       signatures,
 				GeneratedOutputs: generatedOutputs,
 			}, nil
+		default:
+			// Without this, a request type we do not know would be
+			// answered with nothing and loop forever while holding
+			// the device lock.
+			return nil, errp.Newf("unexpected sign request type %v",
+				next.Type)
 		}
 	}
 }

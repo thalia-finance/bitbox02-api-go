@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/BitBoxSwiss/bitbox02-api-go/api/common"
 	"github.com/BitBoxSwiss/bitbox02-api-go/api/firmware/messages"
+	"github.com/BitBoxSwiss/bitbox02-api-go/api/firmware/mocks"
 	"github.com/BitBoxSwiss/bitbox02-api-go/util/semver"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
@@ -565,4 +567,48 @@ CONFIRM SCREEN END
 `, displayAddress))
 		}
 	})
+}
+
+// TestBTCSignUnknownNextType asserts that a sign request type the library does
+// not know makes BTCSign fail instead of looping forever.
+func TestBTCSignUnknownNextType(t *testing.T) {
+	communication := &mocks.Communication{}
+	device := newDevice(
+		t, semver.NewSemVer(9, 20, 0), common.ProductBitBox02Multi,
+		communication, func(request *messages.Request) *messages.Response {
+			_, ok := request.Request.(*messages.Request_BtcSignInit)
+			require.True(t, ok)
+			return &messages.Response{
+				Response: &messages.Response_BtcSignNext{
+					BtcSignNext: &messages.BTCSignNextResponse{
+						Type: messages.BTCSignNextResponse_Type(
+							99,
+						),
+					},
+				},
+			}
+		},
+	)
+
+	scriptConfigs := []*messages.BTCScriptConfigWithKeypath{{
+		ScriptConfig: NewBTCScriptConfigSimple(
+			messages.BTCScriptConfig_P2TR,
+		),
+		Keypath: []uint32{
+			86 + hardenedKeyStart, 1 + hardenedKeyStart,
+			hardenedKeyStart,
+		},
+	}}
+	tx := &BTCTx{
+		Version: 2,
+		Inputs: []*BTCTxInput{{
+			Input: &messages.BTCSignInputRequest{},
+		}},
+		Outputs: []*messages.BTCSignOutputRequest{{}},
+	}
+	_, err := device.BTCSign(
+		messages.BTCCoin_TBTC, scriptConfigs, nil, tx,
+		messages.BTCSignInitRequest_DEFAULT,
+	)
+	require.ErrorContains(t, err, "unexpected sign request type")
 }
