@@ -34,6 +34,7 @@ type ourKey struct {
 	segwit          *psbt.Bip32Derivation
 	taprootInternal *taprootInternal
 	taprootScript   *taprootScript
+	muSig2          *muSig2Key
 }
 
 // bip352Pubkey returns the pubkey used for silent payments:
@@ -56,6 +57,9 @@ func (key *ourKey) bip352Pubkey() ([]byte, error) {
 }
 
 func (key *ourKey) keypath() []uint32 {
+	if key.muSig2 != nil {
+		return key.muSig2.keypath
+	}
 	if key.segwit != nil {
 		return key.segwit.Bip32Path
 	}
@@ -81,6 +85,10 @@ func (i psbtInputInfo) GetTaprootBip32Derivation() []*psbt.TaprootBip32Derivatio
 	return i.TaprootBip32Derivation
 }
 
+func (i psbtInputInfo) GetMuSig2Participants() []*psbt.MuSig2Participants {
+	return i.MuSig2Participants
+}
+
 type psbtOutputInfo struct {
 	psbt.POutput
 }
@@ -97,17 +105,33 @@ func (o psbtOutputInfo) GetTaprootBip32Derivation() []*psbt.TaprootBip32Derivati
 	return o.TaprootBip32Derivation
 }
 
+func (o psbtOutputInfo) GetMuSig2Participants() []*psbt.MuSig2Participants {
+	return o.MuSig2Participants
+}
+
 type OutputInfo interface {
 	psbtInputInfo | psbtOutputInfo
 	GetBip32Derivation() []*psbt.Bip32Derivation
 	GetTapInternalKey() []byte
 	GetTaprootBip32Derivation() []*psbt.TaprootBip32Derivation
+	GetMuSig2Participants() []*psbt.MuSig2Participants
 }
 
 // Finds and extracts our key info in the segwit/taproot key infos. Returns nil if our key is not
 // present in the input/output.
+//
+// A MuSig2 participant key is not part of the script itself, so it is looked up in the MuSig2
+// participants records first. The keypath of a returned MuSig2 key still has to be completed.
 func findOurKey[O OutputInfo](ourRootFingerprint []byte, outputInfo O) (*ourKey, error) {
 	ourRootFingerPrintInt := binary.LittleEndian.Uint32(ourRootFingerprint)
+	muSig2 := findOurMuSig2Participant(
+		ourRootFingerPrintInt,
+		outputInfo.GetMuSig2Participants(),
+		outputInfo.GetTaprootBip32Derivation(),
+	)
+	if muSig2 != nil {
+		return &ourKey{muSig2: muSig2}, nil
+	}
 	for _, tapKey := range outputInfo.GetTaprootBip32Derivation() {
 		if ourRootFingerPrintInt == tapKey.MasterKeyFingerprint {
 			// TODO: check for fingerprint collision
@@ -288,6 +312,10 @@ type PSBTSignOptions struct {
 	// firmware validates the structure and computes the BIP-322
 	// sighash rather than a standard BIP-143/341 sighash.
 	Bip322Message []byte
+	// MuSig2 must be set if the PSBT has MuSig2 inputs with our key. The device's public nonces
+	// and partial signatures are added to the PSBT. MuSig2 inputs require ForceScriptConfig to be
+	// the registered policy, and exactly one MuSig2 spend path per input with our key.
+	MuSig2 *PSBTMuSig2Options
 }
 
 func (b *PSBTSignOptions) isSilentPayment() bool {
@@ -481,6 +509,21 @@ func newBTCTxFromPSBT(
 			return nil, errp.New("our key not found in input")
 		}
 
+		var muSig2Input *messages.BTCMuSig2Input
+		if ourKey.muSig2 != nil {
+			if err := completeMuSig2Input(psbt_, inputIndex, ourKey.muSig2); err != nil {
+				return nil, err
+			}
+			policy := options.ForceScriptConfig.GetScriptConfig().GetPolicy()
+			if policy == nil {
+				return nil, errp.New("MuSig2 inputs require a policy script config")
+			}
+			muSig2Input, err = ourKey.muSig2.btcMuSig2Input(policy)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		scriptConfig, err := getScriptConfig(
 			options,
 			utxo,
@@ -514,6 +557,7 @@ func newBTCTxFromPSBT(
 				Sequence:          txInput.Sequence,
 				Keypath:           ourKey.keypath(),
 				ScriptConfigIndex: scriptConfigIndex,
+				Musig2:            muSig2Input,
 			},
 			PrevTx:       prevTx,
 			BIP352Pubkey: bip352Pubkey,
@@ -536,6 +580,11 @@ func newBTCTxFromPSBT(
 		ourKey, err := findOurKey(ourRootFingerprint, psbtOutputInfo{psbtOutput})
 		if err != nil {
 			return nil, err
+		}
+		if ourKey != nil && ourKey.muSig2 != nil {
+			if err := completeMuSig2Output(&psbtOutput, ourKey.muSig2); err != nil {
+				return nil, err
+			}
 		}
 
 		scriptConfig, sameAccount, err := handleOurOutput(
@@ -618,6 +667,9 @@ func newBTCTxFromPSBT(
 
 // BTCSignPSBT signs a PSBT. If `options` is nil, the default options are used. The PSBT input signatures will be
 // populated. If a (partial) signature for the public key of the device already exists, it will be overwritten.
+//
+// For MuSig2 inputs, the device's BIP-373 public nonces and partial signatures are added instead, as
+// selected by `options.MuSig2`.
 func (device *Device) BTCSignPSBT(
 	coin messages.BTCCoin,
 	psbt_ *psbt.Packet,
@@ -635,21 +687,41 @@ func (device *Device) BTCSignPSBT(
 	if err != nil {
 		return err
 	}
+	if err := txResult.addMuSig2Options(psbt_, options.MuSig2); err != nil {
+		return err
+	}
 	signResult, err := device.BTCSign(
 		coin, txResult.scriptConfigs, txResult.outputScriptConfigs, txResult.tx, options.FormatUnit)
 	if err != nil {
 		return err
 	}
 
+	if options.MuSig2 != nil {
+		options.MuSig2.SessionID = signResult.MuSig2SessionID
+	}
+
 	for inputIndex := range psbt_.Inputs {
 		psbtInput := &psbt_.Inputs[inputIndex]
+		ourKey := txResult.ourKeys[inputIndex]
+		if ourKey.muSig2 != nil {
+			err := ourKey.muSig2.addContribution(
+				psbtInput, signResult.MuSig2Results[uint32(inputIndex)],
+			)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		// A MuSig2 nonce round yields no ordinary signatures.
+		if options.MuSig2 != nil && options.MuSig2.Phase == messages.BTCMuSig2Init_NONCE {
+			continue
+		}
 		signatureCompact := signResult.Signatures[inputIndex]
 		r := new(btcec.ModNScalar)
 		r.SetByteSlice(signatureCompact[:32])
 		s := new(btcec.ModNScalar)
 		s.SetByteSlice(signatureCompact[32:])
 		signatureDER := ecdsa.NewSignature(r, s).Serialize()
-		ourKey := txResult.ourKeys[inputIndex]
 		switch {
 		case ourKey.segwit != nil:
 			// Check if we already have a partial signature for this
