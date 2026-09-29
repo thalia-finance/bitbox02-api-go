@@ -415,6 +415,7 @@ const (
 	BTCSignNextResponse_PREVTX_OUTPUT   BTCSignNextResponse_Type = 5
 	BTCSignNextResponse_HOST_NONCE      BTCSignNextResponse_Type = 6
 	BTCSignNextResponse_PAYMENT_REQUEST BTCSignNextResponse_Type = 7
+	BTCSignNextResponse_MUSIG2_NONCES   BTCSignNextResponse_Type = 8
 )
 
 // Enum value maps for BTCSignNextResponse_Type.
@@ -428,6 +429,7 @@ var (
 		5: "PREVTX_OUTPUT",
 		6: "HOST_NONCE",
 		7: "PAYMENT_REQUEST",
+		8: "MUSIG2_NONCES",
 	}
 	BTCSignNextResponse_Type_value = map[string]int32{
 		"INPUT":           0,
@@ -438,6 +440,7 @@ var (
 		"PREVTX_OUTPUT":   5,
 		"HOST_NONCE":      6,
 		"PAYMENT_REQUEST": 7,
+		"MUSIG2_NONCES":   8,
 	}
 )
 
@@ -466,6 +469,61 @@ func (x BTCSignNextResponse_Type) Number() protoreflect.EnumNumber {
 // Deprecated: Use BTCSignNextResponse_Type.Descriptor instead.
 func (BTCSignNextResponse_Type) EnumDescriptor() ([]byte, []int) {
 	return file_btc_proto_rawDescGZIP(), []int{5, 0}
+}
+
+type BTCMuSig2Init_Phase int32
+
+const (
+	BTCMuSig2Init_NONCE BTCMuSig2Init_Phase = 0
+	BTCMuSig2Init_SIGN  BTCMuSig2Init_Phase = 1
+	BTCMuSig2Init_ABORT BTCMuSig2Init_Phase = 2
+	// Single round for the last participant to contribute a nonce: the host
+	// supplies every other participant's public nonce, the device generates
+	// its own nonce and signs immediately. No secret nonce is retained.
+	BTCMuSig2Init_NONCE_AND_SIGN BTCMuSig2Init_Phase = 3
+)
+
+// Enum value maps for BTCMuSig2Init_Phase.
+var (
+	BTCMuSig2Init_Phase_name = map[int32]string{
+		0: "NONCE",
+		1: "SIGN",
+		2: "ABORT",
+		3: "NONCE_AND_SIGN",
+	}
+	BTCMuSig2Init_Phase_value = map[string]int32{
+		"NONCE":          0,
+		"SIGN":           1,
+		"ABORT":          2,
+		"NONCE_AND_SIGN": 3,
+	}
+)
+
+func (x BTCMuSig2Init_Phase) Enum() *BTCMuSig2Init_Phase {
+	p := new(BTCMuSig2Init_Phase)
+	*p = x
+	return p
+}
+
+func (x BTCMuSig2Init_Phase) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (BTCMuSig2Init_Phase) Descriptor() protoreflect.EnumDescriptor {
+	return file_btc_proto_enumTypes[8].Descriptor()
+}
+
+func (BTCMuSig2Init_Phase) Type() protoreflect.EnumType {
+	return &file_btc_proto_enumTypes[8]
+}
+
+func (x BTCMuSig2Init_Phase) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use BTCMuSig2Init_Phase.Descriptor instead.
+func (BTCMuSig2Init_Phase) EnumDescriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{7, 0}
 }
 
 type BTCRegisterScriptConfigRequest_XPubType int32
@@ -500,11 +558,11 @@ func (x BTCRegisterScriptConfigRequest_XPubType) String() string {
 }
 
 func (BTCRegisterScriptConfigRequest_XPubType) Descriptor() protoreflect.EnumDescriptor {
-	return file_btc_proto_enumTypes[8].Descriptor()
+	return file_btc_proto_enumTypes[9].Descriptor()
 }
 
 func (BTCRegisterScriptConfigRequest_XPubType) Type() protoreflect.EnumType {
-	return &file_btc_proto_enumTypes[8]
+	return &file_btc_proto_enumTypes[9]
 }
 
 func (x BTCRegisterScriptConfigRequest_XPubType) Number() protoreflect.EnumNumber {
@@ -513,7 +571,7 @@ func (x BTCRegisterScriptConfigRequest_XPubType) Number() protoreflect.EnumNumbe
 
 // Deprecated: Use BTCRegisterScriptConfigRequest_XPubType.Descriptor instead.
 func (BTCRegisterScriptConfigRequest_XPubType) EnumDescriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{12, 0}
+	return file_btc_proto_rawDescGZIP(), []int{17, 0}
 }
 
 type BTCScriptConfig struct {
@@ -836,11 +894,12 @@ type BTCSignInitRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Coin  BTCCoin                `protobuf:"varint,1,opt,name=coin,proto3,enum=shiftcrypto.bitbox02.BTCCoin" json:"coin,omitempty"`
 	// used script configs in inputs and changes
-	ScriptConfigs                []*BTCScriptConfigWithKeypath `protobuf:"bytes,2,rep,name=script_configs,json=scriptConfigs,proto3" json:"script_configs,omitempty"`
-	Version                      uint32                        `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"` // must be 1 or 2
-	NumInputs                    uint32                        `protobuf:"varint,5,opt,name=num_inputs,json=numInputs,proto3" json:"num_inputs,omitempty"`
-	NumOutputs                   uint32                        `protobuf:"varint,6,opt,name=num_outputs,json=numOutputs,proto3" json:"num_outputs,omitempty"`
-	Locktime                     uint32                        `protobuf:"varint,7,opt,name=locktime,proto3" json:"locktime,omitempty"` // must be <500000000
+	ScriptConfigs []*BTCScriptConfigWithKeypath `protobuf:"bytes,2,rep,name=script_configs,json=scriptConfigs,proto3" json:"script_configs,omitempty"`
+	Version       uint32                        `protobuf:"varint,4,opt,name=version,proto3" json:"version,omitempty"` // must be 1 or 2
+	NumInputs     uint32                        `protobuf:"varint,5,opt,name=num_inputs,json=numInputs,proto3" json:"num_inputs,omitempty"`
+	NumOutputs    uint32                        `protobuf:"varint,6,opt,name=num_outputs,json=numOutputs,proto3" json:"num_outputs,omitempty"`
+	// Consensus nLockTime: values below 500000000 are block heights, otherwise Unix timestamps.
+	Locktime                     uint32                        `protobuf:"varint,7,opt,name=locktime,proto3" json:"locktime,omitempty"`
 	FormatUnit                   BTCSignInitRequest_FormatUnit `protobuf:"varint,8,opt,name=format_unit,json=formatUnit,proto3,enum=shiftcrypto.bitbox02.BTCSignInitRequest_FormatUnit" json:"format_unit,omitempty"`
 	ContainsSilentPaymentOutputs bool                          `protobuf:"varint,9,opt,name=contains_silent_payment_outputs,json=containsSilentPaymentOutputs,proto3" json:"contains_silent_payment_outputs,omitempty"`
 	// used script configs for outputs that send to an address of the same keystore, but not
@@ -851,6 +910,8 @@ type BTCSignInitRequest struct {
 	// Carries the message from the PSBT global field
 	// PSBT_GLOBAL_GENERIC_SIGNED_MESSAGE (0x09) defined in BIP-322 v1.0.0.
 	Bip322Message []byte `protobuf:"bytes,11,opt,name=bip322_message,json=bip322Message,proto3,oneof" json:"bip322_message,omitempty"`
+	// Two BIP373 signing rounds; absent preserves ordinary signing.
+	Musig2        *BTCMuSig2Init `protobuf:"bytes,12,opt,name=musig2,proto3" json:"musig2,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -955,6 +1016,13 @@ func (x *BTCSignInitRequest) GetBip322Message() []byte {
 	return nil
 }
 
+func (x *BTCSignInitRequest) GetMusig2() *BTCMuSig2Init {
+	if x != nil {
+		return x.Musig2
+	}
+	return nil
+}
+
 type BTCSignNextResponse struct {
 	state protoimpl.MessageState   `protogen:"open.v1"`
 	Type  BTCSignNextResponse_Type `protobuf:"varint,1,opt,name=type,proto3,enum=shiftcrypto.bitbox02.BTCSignNextResponse_Type" json:"type,omitempty"`
@@ -967,8 +1035,10 @@ type BTCSignNextResponse struct {
 	PrevIndex                  uint32                      `protobuf:"varint,5,opt,name=prev_index,json=prevIndex,proto3" json:"prev_index,omitempty"`
 	AntiKleptoSignerCommitment *AntiKleptoSignerCommitment `protobuf:"bytes,6,opt,name=anti_klepto_signer_commitment,json=antiKleptoSignerCommitment,proto3" json:"anti_klepto_signer_commitment,omitempty"`
 	// Generated output. The host *must* verify its correctness using `silent_payment_dleq_proof`.
-	GeneratedOutputPkscript []byte `protobuf:"bytes,7,opt,name=generated_output_pkscript,json=generatedOutputPkscript,proto3" json:"generated_output_pkscript,omitempty"`
-	SilentPaymentDleqProof  []byte `protobuf:"bytes,8,opt,name=silent_payment_dleq_proof,json=silentPaymentDleqProof,proto3" json:"silent_payment_dleq_proof,omitempty"`
+	GeneratedOutputPkscript []byte           `protobuf:"bytes,7,opt,name=generated_output_pkscript,json=generatedOutputPkscript,proto3" json:"generated_output_pkscript,omitempty"`
+	SilentPaymentDleqProof  []byte           `protobuf:"bytes,8,opt,name=silent_payment_dleq_proof,json=silentPaymentDleqProof,proto3" json:"silent_payment_dleq_proof,omitempty"`
+	Musig2SessionId         []byte           `protobuf:"bytes,9,opt,name=musig2_session_id,json=musig2SessionId,proto3" json:"musig2_session_id,omitempty"`
+	Musig2Result            *BTCMuSig2Result `protobuf:"bytes,10,opt,name=musig2_result,json=musig2Result,proto3" json:"musig2_result,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -1059,6 +1129,20 @@ func (x *BTCSignNextResponse) GetSilentPaymentDleqProof() []byte {
 	return nil
 }
 
+func (x *BTCSignNextResponse) GetMusig2SessionId() []byte {
+	if x != nil {
+		return x.Musig2SessionId
+	}
+	return nil
+}
+
+func (x *BTCSignNextResponse) GetMusig2Result() *BTCMuSig2Result {
+	if x != nil {
+		return x.Musig2Result
+	}
+	return nil
+}
+
 type BTCSignInputRequest struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	PrevOutHash  []byte                 `protobuf:"bytes,1,opt,name=prevOutHash,proto3" json:"prevOutHash,omitempty"`
@@ -1067,8 +1151,11 @@ type BTCSignInputRequest struct {
 	Sequence     uint32                 `protobuf:"varint,4,opt,name=sequence,proto3" json:"sequence,omitempty"`      // must be 0xffffffff-2, 0xffffffff-1 or 0xffffffff
 	Keypath      []uint32               `protobuf:"varint,6,rep,packed,name=keypath,proto3" json:"keypath,omitempty"` // all inputs must be ours.
 	// References a script config from BTCSignInitRequest
-	ScriptConfigIndex   uint32                         `protobuf:"varint,7,opt,name=script_config_index,json=scriptConfigIndex,proto3" json:"script_config_index,omitempty"`
+	ScriptConfigIndex uint32 `protobuf:"varint,7,opt,name=script_config_index,json=scriptConfigIndex,proto3" json:"script_config_index,omitempty"`
+	// If omitted, the signature uses the historical deterministic zero-contribution S2C fallback.
+	// This differs from plain RFC6979 and does not provide anti-klepto protection.
 	HostNonceCommitment *AntiKleptoHostNonceCommitment `protobuf:"bytes,8,opt,name=host_nonce_commitment,json=hostNonceCommitment,proto3" json:"host_nonce_commitment,omitempty"`
+	Musig2              *BTCMuSig2Input                `protobuf:"bytes,9,opt,name=musig2,proto3" json:"musig2,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -1152,6 +1239,363 @@ func (x *BTCSignInputRequest) GetHostNonceCommitment() *AntiKleptoHostNonceCommi
 	return nil
 }
 
+func (x *BTCSignInputRequest) GetMusig2() *BTCMuSig2Input {
+	if x != nil {
+		return x.Musig2
+	}
+	return nil
+}
+
+// Secret nonces remain in volatile device memory between these rounds.
+// Cancel, lock, disconnect or a new Noise session requires fresh nonces.
+type BTCMuSig2Init struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Phase BTCMuSig2Init_Phase    `protobuf:"varint,1,opt,name=phase,proto3,enum=shiftcrypto.bitbox02.BTCMuSig2Init_Phase" json:"phase,omitempty"`
+	// Empty for NONCE and NONCE_AND_SIGN. The device-generated 32-byte handle
+	// for SIGN/ABORT. This is host coordination state, not a standardized PSBT
+	// field.
+	SessionId     []byte `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BTCMuSig2Init) Reset() {
+	*x = BTCMuSig2Init{}
+	mi := &file_btc_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BTCMuSig2Init) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BTCMuSig2Init) ProtoMessage() {}
+
+func (x *BTCMuSig2Init) ProtoReflect() protoreflect.Message {
+	mi := &file_btc_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BTCMuSig2Init.ProtoReflect.Descriptor instead.
+func (*BTCMuSig2Init) Descriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *BTCMuSig2Init) GetPhase() BTCMuSig2Init_Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return BTCMuSig2Init_NONCE
+}
+
+func (x *BTCMuSig2Init) GetSessionId() []byte {
+	if x != nil {
+		return x.SessionId
+	}
+	return nil
+}
+
+type BTCMuSig2Input struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Exact BIP388 key expression from the registered policy, e.g. musig(@0,@1)/**.
+	// BTCSignInputRequest.keypath is an address selector: participant origin path
+	// followed by aggregate branch/index. Only the origin derives the private key.
+	KeyExpression string `protobuf:"bytes,1,opt,name=key_expression,json=keyExpression,proto3" json:"key_expression,omitempty"`
+	// PSBT_IN_MUSIG2_PARTICIPANT_PUBKEYS: bare KeyAgg key and ordered keys.
+	AggregateKey       []byte   `protobuf:"bytes,2,opt,name=aggregate_key,json=aggregateKey,proto3" json:"aggregate_key,omitempty"`
+	ParticipantPubkeys [][]byte `protobuf:"bytes,3,rep,name=participant_pubkeys,json=participantPubkeys,proto3" json:"participant_pubkeys,omitempty"`
+	// Aggregate key in the BIP373 nonce/signature key-data tuple. It may be the
+	// bare aggregate, its derived internal key, or its tweaked output key; the
+	// device verifies the relationship to the registered policy.
+	ContextKey []byte `protobuf:"bytes,4,opt,name=context_key,json=contextKey,proto3" json:"context_key,omitempty"`
+	// Omitted for key-path signing; exactly 32 bytes for a policy tapscript leaf.
+	TapleafHash   []byte `protobuf:"bytes,5,opt,name=tapleaf_hash,json=tapleafHash,proto3,oneof" json:"tapleaf_hash,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BTCMuSig2Input) Reset() {
+	*x = BTCMuSig2Input{}
+	mi := &file_btc_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BTCMuSig2Input) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BTCMuSig2Input) ProtoMessage() {}
+
+func (x *BTCMuSig2Input) ProtoReflect() protoreflect.Message {
+	mi := &file_btc_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BTCMuSig2Input.ProtoReflect.Descriptor instead.
+func (*BTCMuSig2Input) Descriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *BTCMuSig2Input) GetKeyExpression() string {
+	if x != nil {
+		return x.KeyExpression
+	}
+	return ""
+}
+
+func (x *BTCMuSig2Input) GetAggregateKey() []byte {
+	if x != nil {
+		return x.AggregateKey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Input) GetParticipantPubkeys() [][]byte {
+	if x != nil {
+		return x.ParticipantPubkeys
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Input) GetContextKey() []byte {
+	if x != nil {
+		return x.ContextKey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Input) GetTapleafHash() []byte {
+	if x != nil {
+		return x.TapleafHash
+	}
+	return nil
+}
+
+type BTCMuSig2Nonce struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	ParticipantPubkey []byte                 `protobuf:"bytes,1,opt,name=participant_pubkey,json=participantPubkey,proto3" json:"participant_pubkey,omitempty"` // compressed, 33 bytes
+	PublicNonce       []byte                 `protobuf:"bytes,2,opt,name=public_nonce,json=publicNonce,proto3" json:"public_nonce,omitempty"`                   // two compressed points, 66 bytes
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *BTCMuSig2Nonce) Reset() {
+	*x = BTCMuSig2Nonce{}
+	mi := &file_btc_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BTCMuSig2Nonce) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BTCMuSig2Nonce) ProtoMessage() {}
+
+func (x *BTCMuSig2Nonce) ProtoReflect() protoreflect.Message {
+	mi := &file_btc_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BTCMuSig2Nonce.ProtoReflect.Descriptor instead.
+func (*BTCMuSig2Nonce) Descriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *BTCMuSig2Nonce) GetParticipantPubkey() []byte {
+	if x != nil {
+		return x.ParticipantPubkey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Nonce) GetPublicNonce() []byte {
+	if x != nil {
+		return x.PublicNonce
+	}
+	return nil
+}
+
+type BTCMuSig2NoncesRequest struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	InputIndex  uint32                 `protobuf:"varint,1,opt,name=input_index,json=inputIndex,proto3" json:"input_index,omitempty"`
+	ContextKey  []byte                 `protobuf:"bytes,2,opt,name=context_key,json=contextKey,proto3" json:"context_key,omitempty"`
+	TapleafHash []byte                 `protobuf:"bytes,3,opt,name=tapleaf_hash,json=tapleafHash,proto3,oneof" json:"tapleaf_hash,omitempty"`
+	// Exactly one record per participant, in arbitrary map order. SIGN includes
+	// ours; NONCE_AND_SIGN includes every participant except us.
+	Nonces        []*BTCMuSig2Nonce `protobuf:"bytes,4,rep,name=nonces,proto3" json:"nonces,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BTCMuSig2NoncesRequest) Reset() {
+	*x = BTCMuSig2NoncesRequest{}
+	mi := &file_btc_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BTCMuSig2NoncesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BTCMuSig2NoncesRequest) ProtoMessage() {}
+
+func (x *BTCMuSig2NoncesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_btc_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BTCMuSig2NoncesRequest.ProtoReflect.Descriptor instead.
+func (*BTCMuSig2NoncesRequest) Descriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *BTCMuSig2NoncesRequest) GetInputIndex() uint32 {
+	if x != nil {
+		return x.InputIndex
+	}
+	return 0
+}
+
+func (x *BTCMuSig2NoncesRequest) GetContextKey() []byte {
+	if x != nil {
+		return x.ContextKey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2NoncesRequest) GetTapleafHash() []byte {
+	if x != nil {
+		return x.TapleafHash
+	}
+	return nil
+}
+
+func (x *BTCMuSig2NoncesRequest) GetNonces() []*BTCMuSig2Nonce {
+	if x != nil {
+		return x.Nonces
+	}
+	return nil
+}
+
+type BTCMuSig2Result struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Identifies this result, independently of the next requested input index.
+	InputIndex        uint32 `protobuf:"varint,1,opt,name=input_index,json=inputIndex,proto3" json:"input_index,omitempty"`
+	ParticipantPubkey []byte `protobuf:"bytes,2,opt,name=participant_pubkey,json=participantPubkey,proto3" json:"participant_pubkey,omitempty"`
+	ContextKey        []byte `protobuf:"bytes,3,opt,name=context_key,json=contextKey,proto3" json:"context_key,omitempty"`
+	TapleafHash       []byte `protobuf:"bytes,4,opt,name=tapleaf_hash,json=tapleafHash,proto3,oneof" json:"tapleaf_hash,omitempty"`
+	// NONCE sets only the public nonce, SIGN only the partial signature and
+	// NONCE_AND_SIGN both.
+	PublicNonce      []byte `protobuf:"bytes,5,opt,name=public_nonce,json=publicNonce,proto3" json:"public_nonce,omitempty"`                // PSBT_IN_MUSIG2_PUB_NONCE, 66 bytes
+	PartialSignature []byte `protobuf:"bytes,6,opt,name=partial_signature,json=partialSignature,proto3" json:"partial_signature,omitempty"` // PSBT_IN_MUSIG2_PARTIAL_SIG, 32 bytes
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *BTCMuSig2Result) Reset() {
+	*x = BTCMuSig2Result{}
+	mi := &file_btc_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BTCMuSig2Result) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BTCMuSig2Result) ProtoMessage() {}
+
+func (x *BTCMuSig2Result) ProtoReflect() protoreflect.Message {
+	mi := &file_btc_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BTCMuSig2Result.ProtoReflect.Descriptor instead.
+func (*BTCMuSig2Result) Descriptor() ([]byte, []int) {
+	return file_btc_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *BTCMuSig2Result) GetInputIndex() uint32 {
+	if x != nil {
+		return x.InputIndex
+	}
+	return 0
+}
+
+func (x *BTCMuSig2Result) GetParticipantPubkey() []byte {
+	if x != nil {
+		return x.ParticipantPubkey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Result) GetContextKey() []byte {
+	if x != nil {
+		return x.ContextKey
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Result) GetTapleafHash() []byte {
+	if x != nil {
+		return x.TapleafHash
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Result) GetPublicNonce() []byte {
+	if x != nil {
+		return x.PublicNonce
+	}
+	return nil
+}
+
+func (x *BTCMuSig2Result) GetPartialSignature() []byte {
+	if x != nil {
+		return x.PartialSignature
+	}
+	return nil
+}
+
 type BTCSignOutputRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Ours  bool                   `protobuf:"varint,1,opt,name=ours,proto3" json:"ours,omitempty"`
@@ -1179,7 +1623,7 @@ type BTCSignOutputRequest struct {
 
 func (x *BTCSignOutputRequest) Reset() {
 	*x = BTCSignOutputRequest{}
-	mi := &file_btc_proto_msgTypes[7]
+	mi := &file_btc_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1191,7 +1635,7 @@ func (x *BTCSignOutputRequest) String() string {
 func (*BTCSignOutputRequest) ProtoMessage() {}
 
 func (x *BTCSignOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[7]
+	mi := &file_btc_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1204,7 +1648,7 @@ func (x *BTCSignOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCSignOutputRequest.ProtoReflect.Descriptor instead.
 func (*BTCSignOutputRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{7}
+	return file_btc_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *BTCSignOutputRequest) GetOurs() bool {
@@ -1282,7 +1726,7 @@ type BTCScriptConfigRegistration struct {
 
 func (x *BTCScriptConfigRegistration) Reset() {
 	*x = BTCScriptConfigRegistration{}
-	mi := &file_btc_proto_msgTypes[8]
+	mi := &file_btc_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1294,7 +1738,7 @@ func (x *BTCScriptConfigRegistration) String() string {
 func (*BTCScriptConfigRegistration) ProtoMessage() {}
 
 func (x *BTCScriptConfigRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[8]
+	mi := &file_btc_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1307,7 +1751,7 @@ func (x *BTCScriptConfigRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCScriptConfigRegistration.ProtoReflect.Descriptor instead.
 func (*BTCScriptConfigRegistration) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{8}
+	return file_btc_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *BTCScriptConfigRegistration) GetCoin() BTCCoin {
@@ -1339,7 +1783,7 @@ type BTCSuccess struct {
 
 func (x *BTCSuccess) Reset() {
 	*x = BTCSuccess{}
-	mi := &file_btc_proto_msgTypes[9]
+	mi := &file_btc_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1351,7 +1795,7 @@ func (x *BTCSuccess) String() string {
 func (*BTCSuccess) ProtoMessage() {}
 
 func (x *BTCSuccess) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[9]
+	mi := &file_btc_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1364,7 +1808,7 @@ func (x *BTCSuccess) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCSuccess.ProtoReflect.Descriptor instead.
 func (*BTCSuccess) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{9}
+	return file_btc_proto_rawDescGZIP(), []int{14}
 }
 
 type BTCIsScriptConfigRegisteredRequest struct {
@@ -1376,7 +1820,7 @@ type BTCIsScriptConfigRegisteredRequest struct {
 
 func (x *BTCIsScriptConfigRegisteredRequest) Reset() {
 	*x = BTCIsScriptConfigRegisteredRequest{}
-	mi := &file_btc_proto_msgTypes[10]
+	mi := &file_btc_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1388,7 +1832,7 @@ func (x *BTCIsScriptConfigRegisteredRequest) String() string {
 func (*BTCIsScriptConfigRegisteredRequest) ProtoMessage() {}
 
 func (x *BTCIsScriptConfigRegisteredRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[10]
+	mi := &file_btc_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1401,7 +1845,7 @@ func (x *BTCIsScriptConfigRegisteredRequest) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use BTCIsScriptConfigRegisteredRequest.ProtoReflect.Descriptor instead.
 func (*BTCIsScriptConfigRegisteredRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{10}
+	return file_btc_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *BTCIsScriptConfigRegisteredRequest) GetRegistration() *BTCScriptConfigRegistration {
@@ -1420,7 +1864,7 @@ type BTCIsScriptConfigRegisteredResponse struct {
 
 func (x *BTCIsScriptConfigRegisteredResponse) Reset() {
 	*x = BTCIsScriptConfigRegisteredResponse{}
-	mi := &file_btc_proto_msgTypes[11]
+	mi := &file_btc_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1432,7 +1876,7 @@ func (x *BTCIsScriptConfigRegisteredResponse) String() string {
 func (*BTCIsScriptConfigRegisteredResponse) ProtoMessage() {}
 
 func (x *BTCIsScriptConfigRegisteredResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[11]
+	mi := &file_btc_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1445,7 +1889,7 @@ func (x *BTCIsScriptConfigRegisteredResponse) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use BTCIsScriptConfigRegisteredResponse.ProtoReflect.Descriptor instead.
 func (*BTCIsScriptConfigRegisteredResponse) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{11}
+	return file_btc_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *BTCIsScriptConfigRegisteredResponse) GetIsRegistered() bool {
@@ -1467,7 +1911,7 @@ type BTCRegisterScriptConfigRequest struct {
 
 func (x *BTCRegisterScriptConfigRequest) Reset() {
 	*x = BTCRegisterScriptConfigRequest{}
-	mi := &file_btc_proto_msgTypes[12]
+	mi := &file_btc_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1479,7 +1923,7 @@ func (x *BTCRegisterScriptConfigRequest) String() string {
 func (*BTCRegisterScriptConfigRequest) ProtoMessage() {}
 
 func (x *BTCRegisterScriptConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[12]
+	mi := &file_btc_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1492,7 +1936,7 @@ func (x *BTCRegisterScriptConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCRegisterScriptConfigRequest.ProtoReflect.Descriptor instead.
 func (*BTCRegisterScriptConfigRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{12}
+	return file_btc_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *BTCRegisterScriptConfigRequest) GetRegistration() *BTCScriptConfigRegistration {
@@ -1528,7 +1972,7 @@ type BTCPrevTxInitRequest struct {
 
 func (x *BTCPrevTxInitRequest) Reset() {
 	*x = BTCPrevTxInitRequest{}
-	mi := &file_btc_proto_msgTypes[13]
+	mi := &file_btc_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1540,7 +1984,7 @@ func (x *BTCPrevTxInitRequest) String() string {
 func (*BTCPrevTxInitRequest) ProtoMessage() {}
 
 func (x *BTCPrevTxInitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[13]
+	mi := &file_btc_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1553,7 +1997,7 @@ func (x *BTCPrevTxInitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCPrevTxInitRequest.ProtoReflect.Descriptor instead.
 func (*BTCPrevTxInitRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{13}
+	return file_btc_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *BTCPrevTxInitRequest) GetVersion() uint32 {
@@ -1596,7 +2040,7 @@ type BTCPrevTxInputRequest struct {
 
 func (x *BTCPrevTxInputRequest) Reset() {
 	*x = BTCPrevTxInputRequest{}
-	mi := &file_btc_proto_msgTypes[14]
+	mi := &file_btc_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1608,7 +2052,7 @@ func (x *BTCPrevTxInputRequest) String() string {
 func (*BTCPrevTxInputRequest) ProtoMessage() {}
 
 func (x *BTCPrevTxInputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[14]
+	mi := &file_btc_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1621,7 +2065,7 @@ func (x *BTCPrevTxInputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCPrevTxInputRequest.ProtoReflect.Descriptor instead.
 func (*BTCPrevTxInputRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{14}
+	return file_btc_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *BTCPrevTxInputRequest) GetPrevOutHash() []byte {
@@ -1662,7 +2106,7 @@ type BTCPrevTxOutputRequest struct {
 
 func (x *BTCPrevTxOutputRequest) Reset() {
 	*x = BTCPrevTxOutputRequest{}
-	mi := &file_btc_proto_msgTypes[15]
+	mi := &file_btc_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1674,7 +2118,7 @@ func (x *BTCPrevTxOutputRequest) String() string {
 func (*BTCPrevTxOutputRequest) ProtoMessage() {}
 
 func (x *BTCPrevTxOutputRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[15]
+	mi := &file_btc_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1687,7 +2131,7 @@ func (x *BTCPrevTxOutputRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCPrevTxOutputRequest.ProtoReflect.Descriptor instead.
 func (*BTCPrevTxOutputRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{15}
+	return file_btc_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *BTCPrevTxOutputRequest) GetValue() uint64 {
@@ -1717,7 +2161,7 @@ type BTCPaymentRequestRequest struct {
 
 func (x *BTCPaymentRequestRequest) Reset() {
 	*x = BTCPaymentRequestRequest{}
-	mi := &file_btc_proto_msgTypes[16]
+	mi := &file_btc_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1729,7 +2173,7 @@ func (x *BTCPaymentRequestRequest) String() string {
 func (*BTCPaymentRequestRequest) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[16]
+	mi := &file_btc_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1742,7 +2186,7 @@ func (x *BTCPaymentRequestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCPaymentRequestRequest.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16}
+	return file_btc_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *BTCPaymentRequestRequest) GetRecipientName() string {
@@ -1781,10 +2225,12 @@ func (x *BTCPaymentRequestRequest) GetSignature() []byte {
 }
 
 type BTCSignMessageRequest struct {
-	state               protoimpl.MessageState         `protogen:"open.v1"`
-	Coin                BTCCoin                        `protobuf:"varint,1,opt,name=coin,proto3,enum=shiftcrypto.bitbox02.BTCCoin" json:"coin,omitempty"`
-	ScriptConfig        *BTCScriptConfigWithKeypath    `protobuf:"bytes,2,opt,name=script_config,json=scriptConfig,proto3" json:"script_config,omitempty"`
-	Msg                 []byte                         `protobuf:"bytes,3,opt,name=msg,proto3" json:"msg,omitempty"`
+	state        protoimpl.MessageState      `protogen:"open.v1"`
+	Coin         BTCCoin                     `protobuf:"varint,1,opt,name=coin,proto3,enum=shiftcrypto.bitbox02.BTCCoin" json:"coin,omitempty"`
+	ScriptConfig *BTCScriptConfigWithKeypath `protobuf:"bytes,2,opt,name=script_config,json=scriptConfig,proto3" json:"script_config,omitempty"`
+	Msg          []byte                      `protobuf:"bytes,3,opt,name=msg,proto3" json:"msg,omitempty"`
+	// If omitted, the signature uses the historical deterministic zero-contribution S2C fallback.
+	// This differs from plain RFC6979 and does not provide anti-klepto protection.
 	HostNonceCommitment *AntiKleptoHostNonceCommitment `protobuf:"bytes,4,opt,name=host_nonce_commitment,json=hostNonceCommitment,proto3" json:"host_nonce_commitment,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -1792,7 +2238,7 @@ type BTCSignMessageRequest struct {
 
 func (x *BTCSignMessageRequest) Reset() {
 	*x = BTCSignMessageRequest{}
-	mi := &file_btc_proto_msgTypes[17]
+	mi := &file_btc_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1804,7 +2250,7 @@ func (x *BTCSignMessageRequest) String() string {
 func (*BTCSignMessageRequest) ProtoMessage() {}
 
 func (x *BTCSignMessageRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[17]
+	mi := &file_btc_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1817,7 +2263,7 @@ func (x *BTCSignMessageRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCSignMessageRequest.ProtoReflect.Descriptor instead.
 func (*BTCSignMessageRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{17}
+	return file_btc_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *BTCSignMessageRequest) GetCoin() BTCCoin {
@@ -1858,7 +2304,7 @@ type BTCSignMessageResponse struct {
 
 func (x *BTCSignMessageResponse) Reset() {
 	*x = BTCSignMessageResponse{}
-	mi := &file_btc_proto_msgTypes[18]
+	mi := &file_btc_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1870,7 +2316,7 @@ func (x *BTCSignMessageResponse) String() string {
 func (*BTCSignMessageResponse) ProtoMessage() {}
 
 func (x *BTCSignMessageResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[18]
+	mi := &file_btc_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1883,7 +2329,7 @@ func (x *BTCSignMessageResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCSignMessageResponse.ProtoReflect.Descriptor instead.
 func (*BTCSignMessageResponse) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{18}
+	return file_btc_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *BTCSignMessageResponse) GetSignature() []byte {
@@ -1906,6 +2352,7 @@ type BTCRequest struct {
 	//	*BTCRequest_AntikleptoSignature
 	//	*BTCRequest_PaymentRequest
 	//	*BTCRequest_Xpubs
+	//	*BTCRequest_Musig2Nonces
 	Request       isBTCRequest_Request `protobuf_oneof:"request"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1913,7 +2360,7 @@ type BTCRequest struct {
 
 func (x *BTCRequest) Reset() {
 	*x = BTCRequest{}
-	mi := &file_btc_proto_msgTypes[19]
+	mi := &file_btc_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1925,7 +2372,7 @@ func (x *BTCRequest) String() string {
 func (*BTCRequest) ProtoMessage() {}
 
 func (x *BTCRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[19]
+	mi := &file_btc_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1938,7 +2385,7 @@ func (x *BTCRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCRequest.ProtoReflect.Descriptor instead.
 func (*BTCRequest) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{19}
+	return file_btc_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *BTCRequest) GetRequest() isBTCRequest_Request {
@@ -2029,6 +2476,15 @@ func (x *BTCRequest) GetXpubs() *BTCXpubsRequest {
 	return nil
 }
 
+func (x *BTCRequest) GetMusig2Nonces() *BTCMuSig2NoncesRequest {
+	if x != nil {
+		if x, ok := x.Request.(*BTCRequest_Musig2Nonces); ok {
+			return x.Musig2Nonces
+		}
+	}
+	return nil
+}
+
 type isBTCRequest_Request interface {
 	isBTCRequest_Request()
 }
@@ -2069,6 +2525,10 @@ type BTCRequest_Xpubs struct {
 	Xpubs *BTCXpubsRequest `protobuf:"bytes,9,opt,name=xpubs,proto3,oneof"`
 }
 
+type BTCRequest_Musig2Nonces struct {
+	Musig2Nonces *BTCMuSig2NoncesRequest `protobuf:"bytes,10,opt,name=musig2_nonces,json=musig2Nonces,proto3,oneof"`
+}
+
 func (*BTCRequest_IsScriptConfigRegistered) isBTCRequest_Request() {}
 
 func (*BTCRequest_RegisterScriptConfig) isBTCRequest_Request() {}
@@ -2087,6 +2547,8 @@ func (*BTCRequest_PaymentRequest) isBTCRequest_Request() {}
 
 func (*BTCRequest_Xpubs) isBTCRequest_Request() {}
 
+func (*BTCRequest_Musig2Nonces) isBTCRequest_Request() {}
+
 type BTCResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Response:
@@ -2104,7 +2566,7 @@ type BTCResponse struct {
 
 func (x *BTCResponse) Reset() {
 	*x = BTCResponse{}
-	mi := &file_btc_proto_msgTypes[20]
+	mi := &file_btc_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2116,7 +2578,7 @@ func (x *BTCResponse) String() string {
 func (*BTCResponse) ProtoMessage() {}
 
 func (x *BTCResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[20]
+	mi := &file_btc_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2129,7 +2591,7 @@ func (x *BTCResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCResponse.ProtoReflect.Descriptor instead.
 func (*BTCResponse) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{20}
+	return file_btc_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *BTCResponse) GetResponse() isBTCResponse_Response {
@@ -2249,7 +2711,7 @@ type BTCScriptConfig_Multisig struct {
 
 func (x *BTCScriptConfig_Multisig) Reset() {
 	*x = BTCScriptConfig_Multisig{}
-	mi := &file_btc_proto_msgTypes[21]
+	mi := &file_btc_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2261,7 +2723,7 @@ func (x *BTCScriptConfig_Multisig) String() string {
 func (*BTCScriptConfig_Multisig) ProtoMessage() {}
 
 func (x *BTCScriptConfig_Multisig) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[21]
+	mi := &file_btc_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2317,7 +2779,7 @@ type BTCScriptConfig_Policy struct {
 
 func (x *BTCScriptConfig_Policy) Reset() {
 	*x = BTCScriptConfig_Policy{}
-	mi := &file_btc_proto_msgTypes[22]
+	mi := &file_btc_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2329,7 +2791,7 @@ func (x *BTCScriptConfig_Policy) String() string {
 func (*BTCScriptConfig_Policy) ProtoMessage() {}
 
 func (x *BTCScriptConfig_Policy) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[22]
+	mi := &file_btc_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2369,7 +2831,7 @@ type BTCSignOutputRequest_SilentPayment struct {
 
 func (x *BTCSignOutputRequest_SilentPayment) Reset() {
 	*x = BTCSignOutputRequest_SilentPayment{}
-	mi := &file_btc_proto_msgTypes[23]
+	mi := &file_btc_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2381,7 +2843,7 @@ func (x *BTCSignOutputRequest_SilentPayment) String() string {
 func (*BTCSignOutputRequest_SilentPayment) ProtoMessage() {}
 
 func (x *BTCSignOutputRequest_SilentPayment) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[23]
+	mi := &file_btc_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2394,7 +2856,7 @@ func (x *BTCSignOutputRequest_SilentPayment) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use BTCSignOutputRequest_SilentPayment.ProtoReflect.Descriptor instead.
 func (*BTCSignOutputRequest_SilentPayment) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{7, 0}
+	return file_btc_proto_rawDescGZIP(), []int{12, 0}
 }
 
 func (x *BTCSignOutputRequest_SilentPayment) GetAddress() string {
@@ -2417,7 +2879,7 @@ type BTCPaymentRequestRequest_Memo struct {
 
 func (x *BTCPaymentRequestRequest_Memo) Reset() {
 	*x = BTCPaymentRequestRequest_Memo{}
-	mi := &file_btc_proto_msgTypes[24]
+	mi := &file_btc_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2429,7 +2891,7 @@ func (x *BTCPaymentRequestRequest_Memo) String() string {
 func (*BTCPaymentRequestRequest_Memo) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest_Memo) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[24]
+	mi := &file_btc_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2442,7 +2904,7 @@ func (x *BTCPaymentRequestRequest_Memo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BTCPaymentRequestRequest_Memo.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest_Memo) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16, 0}
+	return file_btc_proto_rawDescGZIP(), []int{21, 0}
 }
 
 func (x *BTCPaymentRequestRequest_Memo) GetMemo() isBTCPaymentRequestRequest_Memo_Memo {
@@ -2495,7 +2957,7 @@ type BTCPaymentRequestRequest_Memo_TextMemo struct {
 
 func (x *BTCPaymentRequestRequest_Memo_TextMemo) Reset() {
 	*x = BTCPaymentRequestRequest_Memo_TextMemo{}
-	mi := &file_btc_proto_msgTypes[25]
+	mi := &file_btc_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2507,7 +2969,7 @@ func (x *BTCPaymentRequestRequest_Memo_TextMemo) String() string {
 func (*BTCPaymentRequestRequest_Memo_TextMemo) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest_Memo_TextMemo) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[25]
+	mi := &file_btc_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2520,7 +2982,7 @@ func (x *BTCPaymentRequestRequest_Memo_TextMemo) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use BTCPaymentRequestRequest_Memo_TextMemo.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest_Memo_TextMemo) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16, 0, 0}
+	return file_btc_proto_rawDescGZIP(), []int{21, 0, 0}
 }
 
 func (x *BTCPaymentRequestRequest_Memo_TextMemo) GetNote() string {
@@ -2546,7 +3008,7 @@ type BTCPaymentRequestRequest_Memo_CoinPurchaseMemo struct {
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) Reset() {
 	*x = BTCPaymentRequestRequest_Memo_CoinPurchaseMemo{}
-	mi := &file_btc_proto_msgTypes[26]
+	mi := &file_btc_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2558,7 +3020,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) String() string {
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[26]
+	mi := &file_btc_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2571,7 +3033,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) ProtoReflect() protoref
 
 // Deprecated: Use BTCPaymentRequestRequest_Memo_CoinPurchaseMemo.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16, 0, 1}
+	return file_btc_proto_rawDescGZIP(), []int{21, 0, 1}
 }
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo) GetCoinType() uint32 {
@@ -2649,7 +3111,7 @@ type BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation struct 
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) Reset() {
 	*x = BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation{}
-	mi := &file_btc_proto_msgTypes[27]
+	mi := &file_btc_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2661,7 +3123,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) St
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[27]
+	mi := &file_btc_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2674,7 +3136,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) Pr
 
 // Deprecated: Use BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16, 0, 1, 0}
+	return file_btc_proto_rawDescGZIP(), []int{21, 0, 1, 0}
 }
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation) GetKeypath() []uint32 {
@@ -2694,7 +3156,7 @@ type BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation struct 
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) Reset() {
 	*x = BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation{}
-	mi := &file_btc_proto_msgTypes[28]
+	mi := &file_btc_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2706,7 +3168,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) St
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) ProtoMessage() {}
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) ProtoReflect() protoreflect.Message {
-	mi := &file_btc_proto_msgTypes[28]
+	mi := &file_btc_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2719,7 +3181,7 @@ func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) Pr
 
 // Deprecated: Use BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation.ProtoReflect.Descriptor instead.
 func (*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) Descriptor() ([]byte, []int) {
-	return file_btc_proto_rawDescGZIP(), []int{16, 0, 1, 1}
+	return file_btc_proto_rawDescGZIP(), []int{21, 0, 1, 1}
 }
 
 func (x *BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation) GetScriptConfig() *BTCScriptConfigWithKeypath {
@@ -2788,7 +3250,7 @@ const file_btc_proto_rawDesc = "" +
 	"\x04TPUB\x10\x02\"\x82\x01\n" +
 	"\x1aBTCScriptConfigWithKeypath\x12J\n" +
 	"\rscript_config\x18\x02 \x01(\v2%.shiftcrypto.bitbox02.BTCScriptConfigR\fscriptConfig\x12\x18\n" +
-	"\akeypath\x18\x03 \x03(\rR\akeypath\"\xfc\x04\n" +
+	"\akeypath\x18\x03 \x03(\rR\akeypath\"\xb9\x05\n" +
 	"\x12BTCSignInitRequest\x121\n" +
 	"\x04coin\x18\x01 \x01(\x0e2\x1d.shiftcrypto.bitbox02.BTCCoinR\x04coin\x12W\n" +
 	"\x0escript_configs\x18\x02 \x03(\v20.shiftcrypto.bitbox02.BTCScriptConfigWithKeypathR\rscriptConfigs\x12\x18\n" +
@@ -2803,12 +3265,13 @@ const file_btc_proto_rawDesc = "" +
 	"\x1fcontains_silent_payment_outputs\x18\t \x01(\bR\x1ccontainsSilentPaymentOutputs\x12d\n" +
 	"\x15output_script_configs\x18\n" +
 	" \x03(\v20.shiftcrypto.bitbox02.BTCScriptConfigWithKeypathR\x13outputScriptConfigs\x12*\n" +
-	"\x0ebip322_message\x18\v \x01(\fH\x00R\rbip322Message\x88\x01\x01\"\"\n" +
+	"\x0ebip322_message\x18\v \x01(\fH\x00R\rbip322Message\x88\x01\x01\x12;\n" +
+	"\x06musig2\x18\f \x01(\v2#.shiftcrypto.bitbox02.BTCMuSig2InitR\x06musig2\"\"\n" +
 	"\n" +
 	"FormatUnit\x12\v\n" +
 	"\aDEFAULT\x10\x00\x12\a\n" +
 	"\x03SAT\x10\x01B\x11\n" +
-	"\x0f_bip322_message\"\xc2\x04\n" +
+	"\x0f_bip322_message\"\xcd\x05\n" +
 	"\x13BTCSignNextResponse\x12B\n" +
 	"\x04type\x18\x01 \x01(\x0e2..shiftcrypto.bitbox02.BTCSignNextResponse.TypeR\x04type\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\rR\x05index\x12#\n" +
@@ -2818,7 +3281,10 @@ const file_btc_proto_rawDesc = "" +
 	"prev_index\x18\x05 \x01(\rR\tprevIndex\x12s\n" +
 	"\x1danti_klepto_signer_commitment\x18\x06 \x01(\v20.shiftcrypto.bitbox02.AntiKleptoSignerCommitmentR\x1aantiKleptoSignerCommitment\x12:\n" +
 	"\x19generated_output_pkscript\x18\a \x01(\fR\x17generatedOutputPkscript\x129\n" +
-	"\x19silent_payment_dleq_proof\x18\b \x01(\fR\x16silentPaymentDleqProof\"\x82\x01\n" +
+	"\x19silent_payment_dleq_proof\x18\b \x01(\fR\x16silentPaymentDleqProof\x12*\n" +
+	"\x11musig2_session_id\x18\t \x01(\fR\x0fmusig2SessionId\x12J\n" +
+	"\rmusig2_result\x18\n" +
+	" \x01(\v2%.shiftcrypto.bitbox02.BTCMuSig2ResultR\fmusig2Result\"\x95\x01\n" +
 	"\x04Type\x12\t\n" +
 	"\x05INPUT\x10\x00\x12\n" +
 	"\n" +
@@ -2829,7 +3295,8 @@ const file_btc_proto_rawDesc = "" +
 	"\rPREVTX_OUTPUT\x10\x05\x12\x0e\n" +
 	"\n" +
 	"HOST_NONCE\x10\x06\x12\x13\n" +
-	"\x0fPAYMENT_REQUEST\x10\a\"\xce\x02\n" +
+	"\x0fPAYMENT_REQUEST\x10\a\x12\x11\n" +
+	"\rMUSIG2_NONCES\x10\b\"\x8c\x03\n" +
 	"\x13BTCSignInputRequest\x12 \n" +
 	"\vprevOutHash\x18\x01 \x01(\fR\vprevOutHash\x12\"\n" +
 	"\fprevOutIndex\x18\x02 \x01(\rR\fprevOutIndex\x12\"\n" +
@@ -2837,7 +3304,46 @@ const file_btc_proto_rawDesc = "" +
 	"\bsequence\x18\x04 \x01(\rR\bsequence\x12\x18\n" +
 	"\akeypath\x18\x06 \x03(\rR\akeypath\x12.\n" +
 	"\x13script_config_index\x18\a \x01(\rR\x11scriptConfigIndex\x12g\n" +
-	"\x15host_nonce_commitment\x18\b \x01(\v23.shiftcrypto.bitbox02.AntiKleptoHostNonceCommitmentR\x13hostNonceCommitment\"\x9d\x04\n" +
+	"\x15host_nonce_commitment\x18\b \x01(\v23.shiftcrypto.bitbox02.AntiKleptoHostNonceCommitmentR\x13hostNonceCommitment\x12<\n" +
+	"\x06musig2\x18\t \x01(\v2$.shiftcrypto.bitbox02.BTCMuSig2InputR\x06musig2\"\xac\x01\n" +
+	"\rBTCMuSig2Init\x12?\n" +
+	"\x05phase\x18\x01 \x01(\x0e2).shiftcrypto.bitbox02.BTCMuSig2Init.PhaseR\x05phase\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\fR\tsessionId\";\n" +
+	"\x05Phase\x12\t\n" +
+	"\x05NONCE\x10\x00\x12\b\n" +
+	"\x04SIGN\x10\x01\x12\t\n" +
+	"\x05ABORT\x10\x02\x12\x12\n" +
+	"\x0eNONCE_AND_SIGN\x10\x03\"\xe7\x01\n" +
+	"\x0eBTCMuSig2Input\x12%\n" +
+	"\x0ekey_expression\x18\x01 \x01(\tR\rkeyExpression\x12#\n" +
+	"\raggregate_key\x18\x02 \x01(\fR\faggregateKey\x12/\n" +
+	"\x13participant_pubkeys\x18\x03 \x03(\fR\x12participantPubkeys\x12\x1f\n" +
+	"\vcontext_key\x18\x04 \x01(\fR\n" +
+	"contextKey\x12&\n" +
+	"\ftapleaf_hash\x18\x05 \x01(\fH\x00R\vtapleafHash\x88\x01\x01B\x0f\n" +
+	"\r_tapleaf_hash\"b\n" +
+	"\x0eBTCMuSig2Nonce\x12-\n" +
+	"\x12participant_pubkey\x18\x01 \x01(\fR\x11participantPubkey\x12!\n" +
+	"\fpublic_nonce\x18\x02 \x01(\fR\vpublicNonce\"\xd1\x01\n" +
+	"\x16BTCMuSig2NoncesRequest\x12\x1f\n" +
+	"\vinput_index\x18\x01 \x01(\rR\n" +
+	"inputIndex\x12\x1f\n" +
+	"\vcontext_key\x18\x02 \x01(\fR\n" +
+	"contextKey\x12&\n" +
+	"\ftapleaf_hash\x18\x03 \x01(\fH\x00R\vtapleafHash\x88\x01\x01\x12<\n" +
+	"\x06nonces\x18\x04 \x03(\v2$.shiftcrypto.bitbox02.BTCMuSig2NonceR\x06noncesB\x0f\n" +
+	"\r_tapleaf_hash\"\x8b\x02\n" +
+	"\x0fBTCMuSig2Result\x12\x1f\n" +
+	"\vinput_index\x18\x01 \x01(\rR\n" +
+	"inputIndex\x12-\n" +
+	"\x12participant_pubkey\x18\x02 \x01(\fR\x11participantPubkey\x12\x1f\n" +
+	"\vcontext_key\x18\x03 \x01(\fR\n" +
+	"contextKey\x12&\n" +
+	"\ftapleaf_hash\x18\x04 \x01(\fH\x00R\vtapleafHash\x88\x01\x01\x12!\n" +
+	"\fpublic_nonce\x18\x05 \x01(\fR\vpublicNonce\x12+\n" +
+	"\x11partial_signature\x18\x06 \x01(\fR\x10partialSignatureB\x0f\n" +
+	"\r_tapleaf_hash\"\x9d\x04\n" +
 	"\x14BTCSignOutputRequest\x12\x12\n" +
 	"\x04ours\x18\x01 \x01(\bR\x04ours\x127\n" +
 	"\x04type\x18\x02 \x01(\x0e2#.shiftcrypto.bitbox02.BTCOutputTypeR\x04type\x12\x14\n" +
@@ -2913,7 +3419,7 @@ const file_btc_proto_rawDesc = "" +
 	"\x03msg\x18\x03 \x01(\fR\x03msg\x12g\n" +
 	"\x15host_nonce_commitment\x18\x04 \x01(\v23.shiftcrypto.bitbox02.AntiKleptoHostNonceCommitmentR\x13hostNonceCommitment\"6\n" +
 	"\x16BTCSignMessageResponse\x12\x1c\n" +
-	"\tsignature\x18\x01 \x01(\fR\tsignature\"\xc9\x06\n" +
+	"\tsignature\x18\x01 \x01(\fR\tsignature\"\x9e\a\n" +
 	"\n" +
 	"BTCRequest\x12y\n" +
 	"\x1bis_script_config_registered\x18\x01 \x01(\v28.shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequestH\x00R\x18isScriptConfigRegistered\x12l\n" +
@@ -2925,7 +3431,9 @@ const file_btc_proto_rawDesc = "" +
 	"\fsign_message\x18\x06 \x01(\v2+.shiftcrypto.bitbox02.BTCSignMessageRequestH\x00R\vsignMessage\x12e\n" +
 	"\x14antiklepto_signature\x18\a \x01(\v20.shiftcrypto.bitbox02.AntiKleptoSignatureRequestH\x00R\x13antikleptoSignature\x12Y\n" +
 	"\x0fpayment_request\x18\b \x01(\v2..shiftcrypto.bitbox02.BTCPaymentRequestRequestH\x00R\x0epaymentRequest\x12=\n" +
-	"\x05xpubs\x18\t \x01(\v2%.shiftcrypto.bitbox02.BTCXpubsRequestH\x00R\x05xpubsB\t\n" +
+	"\x05xpubs\x18\t \x01(\v2%.shiftcrypto.bitbox02.BTCXpubsRequestH\x00R\x05xpubs\x12S\n" +
+	"\rmusig2_nonces\x18\n" +
+	" \x01(\v2,.shiftcrypto.bitbox02.BTCMuSig2NoncesRequestH\x00R\fmusig2NoncesB\t\n" +
 	"\arequest\"\xa0\x04\n" +
 	"\vBTCResponse\x12<\n" +
 	"\asuccess\x18\x01 \x01(\v2 .shiftcrypto.bitbox02.BTCSuccessH\x00R\asuccess\x12z\n" +
@@ -2964,8 +3472,8 @@ func file_btc_proto_rawDescGZIP() []byte {
 	return file_btc_proto_rawDescData
 }
 
-var file_btc_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_btc_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_btc_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
+var file_btc_proto_msgTypes = make([]protoimpl.MessageInfo, 34)
 var file_btc_proto_goTypes = []any{
 	(BTCCoin)(0),                                           // 0: shiftcrypto.bitbox02.BTCCoin
 	(BTCOutputType)(0),                                     // 1: shiftcrypto.bitbox02.BTCOutputType
@@ -2975,101 +3483,113 @@ var file_btc_proto_goTypes = []any{
 	(BTCXpubsRequest_XPubType)(0),                          // 5: shiftcrypto.bitbox02.BTCXpubsRequest.XPubType
 	(BTCSignInitRequest_FormatUnit)(0),                     // 6: shiftcrypto.bitbox02.BTCSignInitRequest.FormatUnit
 	(BTCSignNextResponse_Type)(0),                          // 7: shiftcrypto.bitbox02.BTCSignNextResponse.Type
-	(BTCRegisterScriptConfigRequest_XPubType)(0),           // 8: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.XPubType
-	(*BTCScriptConfig)(nil),                                // 9: shiftcrypto.bitbox02.BTCScriptConfig
-	(*BTCPubRequest)(nil),                                  // 10: shiftcrypto.bitbox02.BTCPubRequest
-	(*BTCXpubsRequest)(nil),                                // 11: shiftcrypto.bitbox02.BTCXpubsRequest
-	(*BTCScriptConfigWithKeypath)(nil),                     // 12: shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
-	(*BTCSignInitRequest)(nil),                             // 13: shiftcrypto.bitbox02.BTCSignInitRequest
-	(*BTCSignNextResponse)(nil),                            // 14: shiftcrypto.bitbox02.BTCSignNextResponse
-	(*BTCSignInputRequest)(nil),                            // 15: shiftcrypto.bitbox02.BTCSignInputRequest
-	(*BTCSignOutputRequest)(nil),                           // 16: shiftcrypto.bitbox02.BTCSignOutputRequest
-	(*BTCScriptConfigRegistration)(nil),                    // 17: shiftcrypto.bitbox02.BTCScriptConfigRegistration
-	(*BTCSuccess)(nil),                                     // 18: shiftcrypto.bitbox02.BTCSuccess
-	(*BTCIsScriptConfigRegisteredRequest)(nil),             // 19: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest
-	(*BTCIsScriptConfigRegisteredResponse)(nil),            // 20: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredResponse
-	(*BTCRegisterScriptConfigRequest)(nil),                 // 21: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest
-	(*BTCPrevTxInitRequest)(nil),                           // 22: shiftcrypto.bitbox02.BTCPrevTxInitRequest
-	(*BTCPrevTxInputRequest)(nil),                          // 23: shiftcrypto.bitbox02.BTCPrevTxInputRequest
-	(*BTCPrevTxOutputRequest)(nil),                         // 24: shiftcrypto.bitbox02.BTCPrevTxOutputRequest
-	(*BTCPaymentRequestRequest)(nil),                       // 25: shiftcrypto.bitbox02.BTCPaymentRequestRequest
-	(*BTCSignMessageRequest)(nil),                          // 26: shiftcrypto.bitbox02.BTCSignMessageRequest
-	(*BTCSignMessageResponse)(nil),                         // 27: shiftcrypto.bitbox02.BTCSignMessageResponse
-	(*BTCRequest)(nil),                                     // 28: shiftcrypto.bitbox02.BTCRequest
-	(*BTCResponse)(nil),                                    // 29: shiftcrypto.bitbox02.BTCResponse
-	(*BTCScriptConfig_Multisig)(nil),                       // 30: shiftcrypto.bitbox02.BTCScriptConfig.Multisig
-	(*BTCScriptConfig_Policy)(nil),                         // 31: shiftcrypto.bitbox02.BTCScriptConfig.Policy
-	(*BTCSignOutputRequest_SilentPayment)(nil),             // 32: shiftcrypto.bitbox02.BTCSignOutputRequest.SilentPayment
-	(*BTCPaymentRequestRequest_Memo)(nil),                  // 33: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo
-	(*BTCPaymentRequestRequest_Memo_TextMemo)(nil),         // 34: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.TextMemo
-	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo)(nil), // 35: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo
-	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation)(nil), // 36: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.EthAddressDerivation
-	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation)(nil), // 37: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation
-	(*Keypath)(nil),                       // 38: shiftcrypto.bitbox02.Keypath
-	(*AntiKleptoSignerCommitment)(nil),    // 39: shiftcrypto.bitbox02.AntiKleptoSignerCommitment
-	(*AntiKleptoHostNonceCommitment)(nil), // 40: shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
-	(*AntiKleptoSignatureRequest)(nil),    // 41: shiftcrypto.bitbox02.AntiKleptoSignatureRequest
-	(*PubsResponse)(nil),                  // 42: shiftcrypto.bitbox02.PubsResponse
-	(*XPub)(nil),                          // 43: shiftcrypto.bitbox02.XPub
-	(*KeyOriginInfo)(nil),                 // 44: shiftcrypto.bitbox02.KeyOriginInfo
+	(BTCMuSig2Init_Phase)(0),                               // 8: shiftcrypto.bitbox02.BTCMuSig2Init.Phase
+	(BTCRegisterScriptConfigRequest_XPubType)(0),           // 9: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.XPubType
+	(*BTCScriptConfig)(nil),                                // 10: shiftcrypto.bitbox02.BTCScriptConfig
+	(*BTCPubRequest)(nil),                                  // 11: shiftcrypto.bitbox02.BTCPubRequest
+	(*BTCXpubsRequest)(nil),                                // 12: shiftcrypto.bitbox02.BTCXpubsRequest
+	(*BTCScriptConfigWithKeypath)(nil),                     // 13: shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
+	(*BTCSignInitRequest)(nil),                             // 14: shiftcrypto.bitbox02.BTCSignInitRequest
+	(*BTCSignNextResponse)(nil),                            // 15: shiftcrypto.bitbox02.BTCSignNextResponse
+	(*BTCSignInputRequest)(nil),                            // 16: shiftcrypto.bitbox02.BTCSignInputRequest
+	(*BTCMuSig2Init)(nil),                                  // 17: shiftcrypto.bitbox02.BTCMuSig2Init
+	(*BTCMuSig2Input)(nil),                                 // 18: shiftcrypto.bitbox02.BTCMuSig2Input
+	(*BTCMuSig2Nonce)(nil),                                 // 19: shiftcrypto.bitbox02.BTCMuSig2Nonce
+	(*BTCMuSig2NoncesRequest)(nil),                         // 20: shiftcrypto.bitbox02.BTCMuSig2NoncesRequest
+	(*BTCMuSig2Result)(nil),                                // 21: shiftcrypto.bitbox02.BTCMuSig2Result
+	(*BTCSignOutputRequest)(nil),                           // 22: shiftcrypto.bitbox02.BTCSignOutputRequest
+	(*BTCScriptConfigRegistration)(nil),                    // 23: shiftcrypto.bitbox02.BTCScriptConfigRegistration
+	(*BTCSuccess)(nil),                                     // 24: shiftcrypto.bitbox02.BTCSuccess
+	(*BTCIsScriptConfigRegisteredRequest)(nil),             // 25: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest
+	(*BTCIsScriptConfigRegisteredResponse)(nil),            // 26: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredResponse
+	(*BTCRegisterScriptConfigRequest)(nil),                 // 27: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest
+	(*BTCPrevTxInitRequest)(nil),                           // 28: shiftcrypto.bitbox02.BTCPrevTxInitRequest
+	(*BTCPrevTxInputRequest)(nil),                          // 29: shiftcrypto.bitbox02.BTCPrevTxInputRequest
+	(*BTCPrevTxOutputRequest)(nil),                         // 30: shiftcrypto.bitbox02.BTCPrevTxOutputRequest
+	(*BTCPaymentRequestRequest)(nil),                       // 31: shiftcrypto.bitbox02.BTCPaymentRequestRequest
+	(*BTCSignMessageRequest)(nil),                          // 32: shiftcrypto.bitbox02.BTCSignMessageRequest
+	(*BTCSignMessageResponse)(nil),                         // 33: shiftcrypto.bitbox02.BTCSignMessageResponse
+	(*BTCRequest)(nil),                                     // 34: shiftcrypto.bitbox02.BTCRequest
+	(*BTCResponse)(nil),                                    // 35: shiftcrypto.bitbox02.BTCResponse
+	(*BTCScriptConfig_Multisig)(nil),                       // 36: shiftcrypto.bitbox02.BTCScriptConfig.Multisig
+	(*BTCScriptConfig_Policy)(nil),                         // 37: shiftcrypto.bitbox02.BTCScriptConfig.Policy
+	(*BTCSignOutputRequest_SilentPayment)(nil),             // 38: shiftcrypto.bitbox02.BTCSignOutputRequest.SilentPayment
+	(*BTCPaymentRequestRequest_Memo)(nil),                  // 39: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo
+	(*BTCPaymentRequestRequest_Memo_TextMemo)(nil),         // 40: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.TextMemo
+	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo)(nil), // 41: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo
+	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_EthAddressDerivation)(nil), // 42: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.EthAddressDerivation
+	(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_BtcAddressDerivation)(nil), // 43: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation
+	(*Keypath)(nil),                       // 44: shiftcrypto.bitbox02.Keypath
+	(*AntiKleptoSignerCommitment)(nil),    // 45: shiftcrypto.bitbox02.AntiKleptoSignerCommitment
+	(*AntiKleptoHostNonceCommitment)(nil), // 46: shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
+	(*AntiKleptoSignatureRequest)(nil),    // 47: shiftcrypto.bitbox02.AntiKleptoSignatureRequest
+	(*PubsResponse)(nil),                  // 48: shiftcrypto.bitbox02.PubsResponse
+	(*XPub)(nil),                          // 49: shiftcrypto.bitbox02.XPub
+	(*KeyOriginInfo)(nil),                 // 50: shiftcrypto.bitbox02.KeyOriginInfo
 }
 var file_btc_proto_depIdxs = []int32{
 	2,  // 0: shiftcrypto.bitbox02.BTCScriptConfig.simple_type:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.SimpleType
-	30, // 1: shiftcrypto.bitbox02.BTCScriptConfig.multisig:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Multisig
-	31, // 2: shiftcrypto.bitbox02.BTCScriptConfig.policy:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Policy
+	36, // 1: shiftcrypto.bitbox02.BTCScriptConfig.multisig:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Multisig
+	37, // 2: shiftcrypto.bitbox02.BTCScriptConfig.policy:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Policy
 	0,  // 3: shiftcrypto.bitbox02.BTCPubRequest.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
 	4,  // 4: shiftcrypto.bitbox02.BTCPubRequest.xpub_type:type_name -> shiftcrypto.bitbox02.BTCPubRequest.XPubType
-	9,  // 5: shiftcrypto.bitbox02.BTCPubRequest.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
+	10, // 5: shiftcrypto.bitbox02.BTCPubRequest.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
 	0,  // 6: shiftcrypto.bitbox02.BTCXpubsRequest.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
 	5,  // 7: shiftcrypto.bitbox02.BTCXpubsRequest.xpub_type:type_name -> shiftcrypto.bitbox02.BTCXpubsRequest.XPubType
-	38, // 8: shiftcrypto.bitbox02.BTCXpubsRequest.keypaths:type_name -> shiftcrypto.bitbox02.Keypath
-	9,  // 9: shiftcrypto.bitbox02.BTCScriptConfigWithKeypath.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
+	44, // 8: shiftcrypto.bitbox02.BTCXpubsRequest.keypaths:type_name -> shiftcrypto.bitbox02.Keypath
+	10, // 9: shiftcrypto.bitbox02.BTCScriptConfigWithKeypath.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
 	0,  // 10: shiftcrypto.bitbox02.BTCSignInitRequest.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
-	12, // 11: shiftcrypto.bitbox02.BTCSignInitRequest.script_configs:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
+	13, // 11: shiftcrypto.bitbox02.BTCSignInitRequest.script_configs:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
 	6,  // 12: shiftcrypto.bitbox02.BTCSignInitRequest.format_unit:type_name -> shiftcrypto.bitbox02.BTCSignInitRequest.FormatUnit
-	12, // 13: shiftcrypto.bitbox02.BTCSignInitRequest.output_script_configs:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
-	7,  // 14: shiftcrypto.bitbox02.BTCSignNextResponse.type:type_name -> shiftcrypto.bitbox02.BTCSignNextResponse.Type
-	39, // 15: shiftcrypto.bitbox02.BTCSignNextResponse.anti_klepto_signer_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoSignerCommitment
-	40, // 16: shiftcrypto.bitbox02.BTCSignInputRequest.host_nonce_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
-	1,  // 17: shiftcrypto.bitbox02.BTCSignOutputRequest.type:type_name -> shiftcrypto.bitbox02.BTCOutputType
-	32, // 18: shiftcrypto.bitbox02.BTCSignOutputRequest.silent_payment:type_name -> shiftcrypto.bitbox02.BTCSignOutputRequest.SilentPayment
-	0,  // 19: shiftcrypto.bitbox02.BTCScriptConfigRegistration.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
-	9,  // 20: shiftcrypto.bitbox02.BTCScriptConfigRegistration.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
-	17, // 21: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest.registration:type_name -> shiftcrypto.bitbox02.BTCScriptConfigRegistration
-	17, // 22: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.registration:type_name -> shiftcrypto.bitbox02.BTCScriptConfigRegistration
-	8,  // 23: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.xpub_type:type_name -> shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.XPubType
-	33, // 24: shiftcrypto.bitbox02.BTCPaymentRequestRequest.memos:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo
-	0,  // 25: shiftcrypto.bitbox02.BTCSignMessageRequest.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
-	12, // 26: shiftcrypto.bitbox02.BTCSignMessageRequest.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
-	40, // 27: shiftcrypto.bitbox02.BTCSignMessageRequest.host_nonce_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
-	19, // 28: shiftcrypto.bitbox02.BTCRequest.is_script_config_registered:type_name -> shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest
-	21, // 29: shiftcrypto.bitbox02.BTCRequest.register_script_config:type_name -> shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest
-	22, // 30: shiftcrypto.bitbox02.BTCRequest.prevtx_init:type_name -> shiftcrypto.bitbox02.BTCPrevTxInitRequest
-	23, // 31: shiftcrypto.bitbox02.BTCRequest.prevtx_input:type_name -> shiftcrypto.bitbox02.BTCPrevTxInputRequest
-	24, // 32: shiftcrypto.bitbox02.BTCRequest.prevtx_output:type_name -> shiftcrypto.bitbox02.BTCPrevTxOutputRequest
-	26, // 33: shiftcrypto.bitbox02.BTCRequest.sign_message:type_name -> shiftcrypto.bitbox02.BTCSignMessageRequest
-	41, // 34: shiftcrypto.bitbox02.BTCRequest.antiklepto_signature:type_name -> shiftcrypto.bitbox02.AntiKleptoSignatureRequest
-	25, // 35: shiftcrypto.bitbox02.BTCRequest.payment_request:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest
-	11, // 36: shiftcrypto.bitbox02.BTCRequest.xpubs:type_name -> shiftcrypto.bitbox02.BTCXpubsRequest
-	18, // 37: shiftcrypto.bitbox02.BTCResponse.success:type_name -> shiftcrypto.bitbox02.BTCSuccess
-	20, // 38: shiftcrypto.bitbox02.BTCResponse.is_script_config_registered:type_name -> shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredResponse
-	14, // 39: shiftcrypto.bitbox02.BTCResponse.sign_next:type_name -> shiftcrypto.bitbox02.BTCSignNextResponse
-	27, // 40: shiftcrypto.bitbox02.BTCResponse.sign_message:type_name -> shiftcrypto.bitbox02.BTCSignMessageResponse
-	39, // 41: shiftcrypto.bitbox02.BTCResponse.antiklepto_signer_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoSignerCommitment
-	42, // 42: shiftcrypto.bitbox02.BTCResponse.pubs:type_name -> shiftcrypto.bitbox02.PubsResponse
-	43, // 43: shiftcrypto.bitbox02.BTCScriptConfig.Multisig.xpubs:type_name -> shiftcrypto.bitbox02.XPub
-	3,  // 44: shiftcrypto.bitbox02.BTCScriptConfig.Multisig.script_type:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Multisig.ScriptType
-	44, // 45: shiftcrypto.bitbox02.BTCScriptConfig.Policy.keys:type_name -> shiftcrypto.bitbox02.KeyOriginInfo
-	34, // 46: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.text_memo:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.TextMemo
-	35, // 47: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.coin_purchase_memo:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo
-	36, // 48: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.eth:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.EthAddressDerivation
-	37, // 49: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.btc:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation
-	12, // 50: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
-	51, // [51:51] is the sub-list for method output_type
-	51, // [51:51] is the sub-list for method input_type
-	51, // [51:51] is the sub-list for extension type_name
-	51, // [51:51] is the sub-list for extension extendee
-	0,  // [0:51] is the sub-list for field type_name
+	13, // 13: shiftcrypto.bitbox02.BTCSignInitRequest.output_script_configs:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
+	17, // 14: shiftcrypto.bitbox02.BTCSignInitRequest.musig2:type_name -> shiftcrypto.bitbox02.BTCMuSig2Init
+	7,  // 15: shiftcrypto.bitbox02.BTCSignNextResponse.type:type_name -> shiftcrypto.bitbox02.BTCSignNextResponse.Type
+	45, // 16: shiftcrypto.bitbox02.BTCSignNextResponse.anti_klepto_signer_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoSignerCommitment
+	21, // 17: shiftcrypto.bitbox02.BTCSignNextResponse.musig2_result:type_name -> shiftcrypto.bitbox02.BTCMuSig2Result
+	46, // 18: shiftcrypto.bitbox02.BTCSignInputRequest.host_nonce_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
+	18, // 19: shiftcrypto.bitbox02.BTCSignInputRequest.musig2:type_name -> shiftcrypto.bitbox02.BTCMuSig2Input
+	8,  // 20: shiftcrypto.bitbox02.BTCMuSig2Init.phase:type_name -> shiftcrypto.bitbox02.BTCMuSig2Init.Phase
+	19, // 21: shiftcrypto.bitbox02.BTCMuSig2NoncesRequest.nonces:type_name -> shiftcrypto.bitbox02.BTCMuSig2Nonce
+	1,  // 22: shiftcrypto.bitbox02.BTCSignOutputRequest.type:type_name -> shiftcrypto.bitbox02.BTCOutputType
+	38, // 23: shiftcrypto.bitbox02.BTCSignOutputRequest.silent_payment:type_name -> shiftcrypto.bitbox02.BTCSignOutputRequest.SilentPayment
+	0,  // 24: shiftcrypto.bitbox02.BTCScriptConfigRegistration.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
+	10, // 25: shiftcrypto.bitbox02.BTCScriptConfigRegistration.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfig
+	23, // 26: shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest.registration:type_name -> shiftcrypto.bitbox02.BTCScriptConfigRegistration
+	23, // 27: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.registration:type_name -> shiftcrypto.bitbox02.BTCScriptConfigRegistration
+	9,  // 28: shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.xpub_type:type_name -> shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest.XPubType
+	39, // 29: shiftcrypto.bitbox02.BTCPaymentRequestRequest.memos:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo
+	0,  // 30: shiftcrypto.bitbox02.BTCSignMessageRequest.coin:type_name -> shiftcrypto.bitbox02.BTCCoin
+	13, // 31: shiftcrypto.bitbox02.BTCSignMessageRequest.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
+	46, // 32: shiftcrypto.bitbox02.BTCSignMessageRequest.host_nonce_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
+	25, // 33: shiftcrypto.bitbox02.BTCRequest.is_script_config_registered:type_name -> shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredRequest
+	27, // 34: shiftcrypto.bitbox02.BTCRequest.register_script_config:type_name -> shiftcrypto.bitbox02.BTCRegisterScriptConfigRequest
+	28, // 35: shiftcrypto.bitbox02.BTCRequest.prevtx_init:type_name -> shiftcrypto.bitbox02.BTCPrevTxInitRequest
+	29, // 36: shiftcrypto.bitbox02.BTCRequest.prevtx_input:type_name -> shiftcrypto.bitbox02.BTCPrevTxInputRequest
+	30, // 37: shiftcrypto.bitbox02.BTCRequest.prevtx_output:type_name -> shiftcrypto.bitbox02.BTCPrevTxOutputRequest
+	32, // 38: shiftcrypto.bitbox02.BTCRequest.sign_message:type_name -> shiftcrypto.bitbox02.BTCSignMessageRequest
+	47, // 39: shiftcrypto.bitbox02.BTCRequest.antiklepto_signature:type_name -> shiftcrypto.bitbox02.AntiKleptoSignatureRequest
+	31, // 40: shiftcrypto.bitbox02.BTCRequest.payment_request:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest
+	12, // 41: shiftcrypto.bitbox02.BTCRequest.xpubs:type_name -> shiftcrypto.bitbox02.BTCXpubsRequest
+	20, // 42: shiftcrypto.bitbox02.BTCRequest.musig2_nonces:type_name -> shiftcrypto.bitbox02.BTCMuSig2NoncesRequest
+	24, // 43: shiftcrypto.bitbox02.BTCResponse.success:type_name -> shiftcrypto.bitbox02.BTCSuccess
+	26, // 44: shiftcrypto.bitbox02.BTCResponse.is_script_config_registered:type_name -> shiftcrypto.bitbox02.BTCIsScriptConfigRegisteredResponse
+	15, // 45: shiftcrypto.bitbox02.BTCResponse.sign_next:type_name -> shiftcrypto.bitbox02.BTCSignNextResponse
+	33, // 46: shiftcrypto.bitbox02.BTCResponse.sign_message:type_name -> shiftcrypto.bitbox02.BTCSignMessageResponse
+	45, // 47: shiftcrypto.bitbox02.BTCResponse.antiklepto_signer_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoSignerCommitment
+	48, // 48: shiftcrypto.bitbox02.BTCResponse.pubs:type_name -> shiftcrypto.bitbox02.PubsResponse
+	49, // 49: shiftcrypto.bitbox02.BTCScriptConfig.Multisig.xpubs:type_name -> shiftcrypto.bitbox02.XPub
+	3,  // 50: shiftcrypto.bitbox02.BTCScriptConfig.Multisig.script_type:type_name -> shiftcrypto.bitbox02.BTCScriptConfig.Multisig.ScriptType
+	50, // 51: shiftcrypto.bitbox02.BTCScriptConfig.Policy.keys:type_name -> shiftcrypto.bitbox02.KeyOriginInfo
+	40, // 52: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.text_memo:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.TextMemo
+	41, // 53: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.coin_purchase_memo:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo
+	42, // 54: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.eth:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.EthAddressDerivation
+	43, // 55: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.btc:type_name -> shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation
+	13, // 56: shiftcrypto.bitbox02.BTCPaymentRequestRequest.Memo.CoinPurchaseMemo.BtcAddressDerivation.script_config:type_name -> shiftcrypto.bitbox02.BTCScriptConfigWithKeypath
+	57, // [57:57] is the sub-list for method output_type
+	57, // [57:57] is the sub-list for method input_type
+	57, // [57:57] is the sub-list for extension type_name
+	57, // [57:57] is the sub-list for extension extendee
+	0,  // [0:57] is the sub-list for field type_name
 }
 
 func init() { file_btc_proto_init() }
@@ -3089,8 +3609,11 @@ func file_btc_proto_init() {
 		(*BTCPubRequest_ScriptConfig)(nil),
 	}
 	file_btc_proto_msgTypes[4].OneofWrappers = []any{}
-	file_btc_proto_msgTypes[7].OneofWrappers = []any{}
-	file_btc_proto_msgTypes[19].OneofWrappers = []any{
+	file_btc_proto_msgTypes[8].OneofWrappers = []any{}
+	file_btc_proto_msgTypes[10].OneofWrappers = []any{}
+	file_btc_proto_msgTypes[11].OneofWrappers = []any{}
+	file_btc_proto_msgTypes[12].OneofWrappers = []any{}
+	file_btc_proto_msgTypes[24].OneofWrappers = []any{
 		(*BTCRequest_IsScriptConfigRegistered)(nil),
 		(*BTCRequest_RegisterScriptConfig)(nil),
 		(*BTCRequest_PrevtxInit)(nil),
@@ -3100,8 +3623,9 @@ func file_btc_proto_init() {
 		(*BTCRequest_AntikleptoSignature)(nil),
 		(*BTCRequest_PaymentRequest)(nil),
 		(*BTCRequest_Xpubs)(nil),
+		(*BTCRequest_Musig2Nonces)(nil),
 	}
-	file_btc_proto_msgTypes[20].OneofWrappers = []any{
+	file_btc_proto_msgTypes[25].OneofWrappers = []any{
 		(*BTCResponse_Success)(nil),
 		(*BTCResponse_IsScriptConfigRegistered)(nil),
 		(*BTCResponse_SignNext)(nil),
@@ -3109,11 +3633,11 @@ func file_btc_proto_init() {
 		(*BTCResponse_AntikleptoSignerCommitment)(nil),
 		(*BTCResponse_Pubs)(nil),
 	}
-	file_btc_proto_msgTypes[24].OneofWrappers = []any{
+	file_btc_proto_msgTypes[29].OneofWrappers = []any{
 		(*BTCPaymentRequestRequest_Memo_TextMemo_)(nil),
 		(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_)(nil),
 	}
-	file_btc_proto_msgTypes[26].OneofWrappers = []any{
+	file_btc_proto_msgTypes[31].OneofWrappers = []any{
 		(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_Eth)(nil),
 		(*BTCPaymentRequestRequest_Memo_CoinPurchaseMemo_Btc)(nil),
 	}
@@ -3122,8 +3646,8 @@ func file_btc_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_btc_proto_rawDesc), len(file_btc_proto_rawDesc)),
-			NumEnums:      9,
-			NumMessages:   29,
+			NumEnums:      10,
+			NumMessages:   34,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
