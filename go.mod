@@ -32,3 +32,13 @@ require (
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// BIP-373 MuSig2 PSBT support (btcd PR 2198) is not in a btcd release yet.
+replace (
+	github.com/btcsuite/btcd/btcec/v2 => github.com/guggero/btcd/btcec/v2 v2.0.0-20260929124357-00028b43b277
+	github.com/btcsuite/btcd/btcutil/v2 => github.com/guggero/btcd/btcutil/v2 v2.0.0-20260929124357-00028b43b277
+	github.com/btcsuite/btcd/chaincfg/v2 => github.com/guggero/btcd/chaincfg/v2 v2.0.0-20260929124357-00028b43b277
+	github.com/btcsuite/btcd/psbt/v2 => github.com/guggero/btcd/psbt/v2 v2.0.0-20260929124357-00028b43b277
+	github.com/btcsuite/btcd/txscript/v2 => github.com/guggero/btcd/txscript/v2 v2.0.0-20260929124357-00028b43b277
+	github.com/btcsuite/btcd/wire/v2 => github.com/guggero/btcd/wire/v2 v2.0.0-20260929124357-00028b43b277
+)
