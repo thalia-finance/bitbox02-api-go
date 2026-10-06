@@ -51,7 +51,9 @@ func testMuSig2Tx(options *BTCMuSig2Options) ([]*messages.BTCScriptConfigWithKey
 		tx.Inputs = append(tx.Inputs, &BTCTxInput{
 			Input: &messages.BTCSignInputRequest{
 				Keypath: []uint32{0, 0},
-				Musig2:  testMuSig2Context(),
+				Musig2: []*messages.BTCMuSig2Input{
+					testMuSig2Context(),
+				},
 			},
 		})
 	}
@@ -90,12 +92,16 @@ func muSig2Next(typ messages.BTCSignNextResponse_Type, index uint32,
 	result *messages.BTCMuSig2Result,
 	sessionID []byte) *messages.BTCSignNextResponse {
 
-	return &messages.BTCSignNextResponse{
+	next := &messages.BTCSignNextResponse{
 		Type:            typ,
 		Index:           index,
-		Musig2Result:    result,
 		Musig2SessionId: sessionID,
 	}
+	if result != nil {
+		next.Musig2Results = []*messages.BTCMuSig2Result{result}
+	}
+
+	return next
 }
 
 // muSig2Exchanges scripts the firmware's side of a MuSig2 call over the
@@ -214,10 +220,10 @@ func newMuSig2Device(t *testing.T, version *semver.SemVer,
 }
 
 // testMuSig2Nonces returns nonces requests for both inputs of testMuSig2Tx.
-func testMuSig2Nonces() map[uint32]*messages.BTCMuSig2NoncesRequest {
-	nonces := make(map[uint32]*messages.BTCMuSig2NoncesRequest)
+func testMuSig2Nonces() map[BTCMuSig2Context]*messages.BTCMuSig2NoncesRequest {
+	nonces := make(map[BTCMuSig2Context]*messages.BTCMuSig2NoncesRequest)
 	for index := range uint32(2) {
-		nonces[index] = &messages.BTCMuSig2NoncesRequest{
+		nonces[BTCMuSig2Context{InputIndex: index}] = &messages.BTCMuSig2NoncesRequest{
 			InputIndex: index,
 			ContextKey: testMuSig2Key,
 			Nonces: []*messages.BTCMuSig2Nonce{{
@@ -285,7 +291,10 @@ func TestBTCSignMuSig2Phases(t *testing.T) {
 					testMuSig2Contribution(
 						index, test.nonce,
 						test.partialSig,
-					), result.MuSig2Results[index],
+					),
+					result.MuSig2Results[BTCMuSig2Context{
+						InputIndex: index,
+					}],
 				))
 				require.Empty(t, result.Signatures[index])
 			}
@@ -295,15 +304,18 @@ func TestBTCSignMuSig2Phases(t *testing.T) {
 			require.Equal(t, test.options.SessionID, init.SessionId)
 			for _, request := range *requests {
 				if input := request.GetBtcSignInput(); input != nil {
+					require.Len(t, input.Musig2, 1)
 					require.True(t, proto.Equal(
-						testMuSig2Context(), input.Musig2,
+						testMuSig2Context(), input.Musig2[0],
 					))
 					require.Nil(t, input.HostNonceCommitment)
 				}
 				nonces := request.GetBtc().GetMusig2Nonces()
 				if nonces != nil {
 					require.True(t, proto.Equal(
-						test.options.Nonces[nonces.InputIndex],
+						test.options.Nonces[BTCMuSig2Context{
+							InputIndex: nonces.InputIndex,
+						}],
 						nonces,
 					))
 				}
@@ -341,7 +353,7 @@ func TestBTCSignMuSig2BadContributions(t *testing.T) {
 	}{{
 		name: "missing on done",
 		mutate: func(exchanges []muSig2Exchange) {
-			exchanges[len(exchanges)-1].next.Musig2Result = nil
+			exchanges[len(exchanges)-1].next.Musig2Results = nil
 		},
 		errMsg: "missing MuSig2 contribution",
 	}, {
@@ -353,27 +365,27 @@ func TestBTCSignMuSig2BadContributions(t *testing.T) {
 	}, {
 		name: "duplicate",
 		mutate: func(exchanges []muSig2Exchange) {
-			exchanges[len(exchanges)-1].next.Musig2Result.InputIndex = 0
+			exchanges[len(exchanges)-1].next.Musig2Results[0].InputIndex = 0
 		},
 		errMsg: "duplicate",
 	}, {
 		name: "wrong context",
 		mutate: func(exchanges []muSig2Exchange) {
-			result := exchanges[len(exchanges)-1].next.Musig2Result
+			result := exchanges[len(exchanges)-1].next.Musig2Results[0]
 			result.TapleafHash = make([]byte, 32)
 		},
-		errMsg: "does not match its context",
+		errMsg: "does not match any of its contexts",
 	}, {
 		name: "not a participant",
 		mutate: func(exchanges []muSig2Exchange) {
-			result := exchanges[len(exchanges)-1].next.Musig2Result
+			result := exchanges[len(exchanges)-1].next.Musig2Results[0]
 			result.ParticipantPubkey = testMuSig2Context().ContextKey[1:]
 		},
 		errMsg: "does not match its context",
 	}, {
 		name: "partial signature in nonce round",
 		mutate: func(exchanges []muSig2Exchange) {
-			result := exchanges[len(exchanges)-1].next.Musig2Result
+			result := exchanges[len(exchanges)-1].next.Musig2Results[0]
 			result.PartialSignature = make([]byte, 32)
 		},
 		errMsg: "does not match phase",
@@ -447,7 +459,7 @@ func TestBTCSignMuSig2InvalidOptions(t *testing.T) {
 		mutate: func(tx *BTCTx) {
 			tx.MuSig2.Phase = messages.BTCMuSig2Init_NONCE_AND_SIGN
 			tx.MuSig2.Nonces = testMuSig2Nonces()
-			delete(tx.MuSig2.Nonces, 1)
+			delete(tx.MuSig2.Nonces, BTCMuSig2Context{InputIndex: 1})
 		},
 		errMsg: "invalid MuSig2 nonces",
 	}, {

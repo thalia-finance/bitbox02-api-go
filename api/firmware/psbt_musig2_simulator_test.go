@@ -405,6 +405,41 @@ func TestSimulatorBTCSignPSBTMuSig2(t *testing.T) {
 			requireValidSpend(t, packet)
 		})
 
+		t.Run("several spend paths", func(t *testing.T) {
+			// The device's key is part of the key path aggregate and
+			// of a leaf aggregate. It contributes nonces to both and
+			// signs the key path the software cosigner completes.
+			other, _ := newSoftwareParticipant(t, "other")
+			packet, _, scriptConfig := newSeveralSpendPathsPSBT(
+				t, wallet, other,
+			)
+			require.NoError(t, device.BTCRegisterScriptConfig(
+				messages.BTCCoin_TBTC, scriptConfig.ScriptConfig,
+				nil, "MuSig2 leaf wallet",
+			))
+			opts := options(messages.BTCMuSig2Init_NONCE, nil)
+			opts.ForceScriptConfig = scriptConfig
+
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
+			require.Len(t, packet.Inputs[0].MuSig2PubNonces, 2)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepWait)
+
+			software := &softwareSigner{key: wallet.softwareKey}
+			software.nonce(t, packet)
+			software.sign(t, packet)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepSign)
+
+			opts.MuSig2.Phase = messages.BTCMuSig2Init_SIGN
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
+			require.Len(t, packet.Inputs[0].MuSig2PartialSigs, 2)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepWait)
+			requireValidSpend(t, packet)
+		})
+
 		t.Run("abort", func(t *testing.T) {
 			packet := wallet.newPSBT(t)
 			opts := options(messages.BTCMuSig2Init_NONCE, nil)

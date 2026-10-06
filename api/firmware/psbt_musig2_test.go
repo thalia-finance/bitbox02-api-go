@@ -9,6 +9,7 @@ import (
 	"github.com/BitBoxSwiss/bitbox02-api-go/api/firmware/messages"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/psbt/v2"
 	"github.com/btcsuite/btcd/txscript/v2"
 	"github.com/stretchr/testify/require"
@@ -112,14 +113,16 @@ func TestNewBTCTxFromPSBTMuSig2(t *testing.T) {
 
 	input := result.tx.Inputs[0].Input
 	require.Equal(t, slices.Concat(muSig2TestKeypath, []uint32{0, 0}), input.Keypath)
-	require.Equal(t, "musig(@0,@1)/**", input.Musig2.KeyExpression)
-	require.Equal(t, w.aggregate.SerializeCompressed(), input.Musig2.AggregateKey)
+	require.Len(t, input.Musig2, 1)
+	context := input.Musig2[0]
+	require.Equal(t, "musig(@0,@1)/**", context.KeyExpression)
+	require.Equal(t, w.aggregate.SerializeCompressed(), context.AggregateKey)
 	require.Equal(t, [][]byte{
 		w.sorted[0].SerializeCompressed(), w.sorted[1].SerializeCompressed(),
-	}, input.Musig2.ParticipantPubkeys)
-	require.Nil(t, input.Musig2.TapleafHash)
+	}, context.ParticipantPubkeys)
+	require.Nil(t, context.TapleafHash)
 	info := muSig2SigningInfo(t, packet, w.device.pubKey)
-	require.Equal(t, info.ContextKey.SerializeCompressed(), input.Musig2.ContextKey)
+	require.Equal(t, info.ContextKey.SerializeCompressed(), context.ContextKey)
 
 	change := result.tx.Outputs[1]
 	require.True(t, change.Ours)
@@ -182,30 +185,53 @@ func TestBTCPSBTMuSig2Step(t *testing.T) {
 	require.NoError(t, result.addMuSig2Options(packet, &PSBTMuSig2Options{
 		Phase: messages.BTCMuSig2Init_NONCE_AND_SIGN,
 	}))
-	nonces := result.tx.MuSig2.Nonces[0].Nonces
-	require.Len(t, nonces, 1)
-	require.Equal(t, w.software.pubKey.SerializeCompressed(), nonces[0].ParticipantPubkey)
-	require.ErrorContains(t, result.addMuSig2Options(packet, &PSBTMuSig2Options{
-		Phase: messages.BTCMuSig2Init_SIGN,
-	}), "missing MuSig2 nonce")
+	nonces := result.tx.MuSig2.Nonces[BTCMuSig2Context{}]
+	require.False(t, nonces.Skip)
+	require.Len(t, nonces.Nonces, 1)
+	require.Equal(
+		t, w.software.pubKey.SerializeCompressed(),
+		nonces.Nonces[0].ParticipantPubkey,
+	)
 
-	// Inputs in different states cannot be signed in one call.
+	// Without our nonce, there is nothing to sign in a signing round.
+	require.NoError(t, result.addMuSig2Options(packet, &PSBTMuSig2Options{
+		Phase: messages.BTCMuSig2Init_SIGN,
+	}))
+	nonces = result.tx.MuSig2.Nonces[BTCMuSig2Context{}]
+	require.True(t, nonces.Skip)
+	require.Empty(t, nonces.Nonces)
+
+	// An input whose other nonce is missing is skipped in the single
+	// round, the others are signed.
 	packet.UnsignedTx.AddTxIn(packet.UnsignedTx.TxIn[0])
 	fresh := w.newPSBT(t).Inputs[0]
 	packet.Inputs = append(packet.Inputs, fresh)
-	_, err = BTCPSBTMuSig2Step(packet, fingerprint)
-	require.ErrorContains(t, err, "different signing states")
+	requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepNonceAndSign)
+	result, err = newBTCTxFromPSBT(
+		btcMuSig2MinVersion, packet, fingerprint,
+		&PSBTSignOptions{ForceScriptConfig: w.scriptConfig},
+	)
+	require.NoError(t, err)
+	require.NoError(t, result.addMuSig2Options(packet, &PSBTMuSig2Options{
+		Phase: messages.BTCMuSig2Init_NONCE_AND_SIGN,
+	}))
+	require.False(t, result.tx.MuSig2.Nonces[BTCMuSig2Context{}].Skip)
+	require.True(t, result.tx.MuSig2.Nonces[BTCMuSig2Context{
+		InputIndex: 1,
+	}].Skip)
 }
 
-// TestBTCPSBTMuSig2StepSeveralSpendPaths asserts that an input whose MuSig2 spend
-// path was not narrowed down to one is rejected, as the device contributes to
-// exactly one aggregate per input.
-func TestBTCPSBTMuSig2StepSeveralSpendPaths(t *testing.T) {
-	w := newTestMuSig2Wallet(t)
+// newSeveralSpendPathsPSBT returns a PSBT spending an input of the policy
+// tr(musig(@0,@1)/**,pk(musig(@0,@2)/**)) of the wallet and the other
+// participant, whose device key is part of the key path aggregate and of a
+// leaf aggregate. The change output of newPSBT is external here. It returns
+// the leaf hash and the policy too.
+func newSeveralSpendPathsPSBT(t *testing.T, w *muSig2Wallet,
+	other muSig2Participant) (*psbt.Packet, []byte,
+	*messages.BTCScriptConfigWithKeypath) {
 
-	// Our key is part of the key path aggregate and of a leaf aggregate
-	// with an unrelated key, as in tr(musig(@0,@1)/**,pk(musig(@0,@2)/**)).
-	other, _ := newSoftwareParticipant(t, "other")
+	t.Helper()
+
 	leafWallet := &muSig2Wallet{device: w.device, software: other}
 	leafWallet.complete(t)
 
@@ -250,27 +276,69 @@ func TestBTCPSBTMuSig2StepSeveralSpendPaths(t *testing.T) {
 		},
 	)
 
+	packet.Outputs[1] = psbt.POutput{}
+
+	return packet, leafHash[:], leafScriptConfig(t, w, other)
+}
+
+// TestBTCPSBTMuSig2StepSeveralSpendPaths asserts that the device contributes to
+// every spend path of an input its key is part of: nonces to all of them, and
+// partial signatures to those whose nonces are complete, skipping the others.
+func TestBTCPSBTMuSig2StepSeveralSpendPaths(t *testing.T) {
+	w := newTestMuSig2Wallet(t)
+	other, _ := newSoftwareParticipant(t, "other")
+	packet, leafHash, scriptConfig := newSeveralSpendPathsPSBT(t, w, other)
+	input := &packet.Inputs[0]
+
 	infos, err := psbt.MuSig2SigningInfos(packet, 0, w.device.pubKey)
 	require.NoError(t, err)
 	require.Len(t, infos, 2)
 
-	_, err = BTCPSBTMuSig2Step(packet, w.device.fingerprint)
-	require.ErrorContains(t, err, "2 MuSig2 spend paths")
-	_, err = newBTCTxFromPSBT(
-		btcMuSig2MinVersion, packet, w.device.fingerprint,
-		&PSBTSignOptions{ForceScriptConfig: w.scriptConfig},
-	)
-	require.ErrorContains(t, err, "2 MuSig2 spend paths")
-
-	// Narrowed down to the leaf, only the leaf is signed.
-	input.MuSig2Participants = input.MuSig2Participants[1:]
+	// The nonce round covers both spend paths, the key path first.
+	fingerprint := w.device.fingerprint
+	options := &PSBTSignOptions{ForceScriptConfig: scriptConfig}
+	requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepNonce)
 	result, err := newBTCTxFromPSBT(
-		btcMuSig2MinVersion, packet, w.device.fingerprint,
-		&PSBTSignOptions{ForceScriptConfig: leafScriptConfig(t, w, other)},
+		btcMuSig2MinVersion, packet, fingerprint, options,
 	)
 	require.NoError(t, err)
-	require.Equal(t, leafHash[:], result.tx.Inputs[0].Input.Musig2.TapleafHash)
-	require.Equal(t, "musig(@0,@2)/**", result.tx.Inputs[0].Input.Musig2.KeyExpression)
+	contexts := result.tx.Inputs[0].Input.Musig2
+	require.Len(t, contexts, 2)
+	require.Equal(t, "musig(@0,@1)/**", contexts[0].KeyExpression)
+	require.Nil(t, contexts[0].TapleafHash)
+	require.Equal(t, "musig(@0,@2)/**", contexts[1].KeyExpression)
+	require.Equal(t, leafHash, contexts[1].TapleafHash)
+
+	// The key path partner contributes its nonce: the key path is signed,
+	// the leaf skipped.
+	for _, info := range infos {
+		nonces, err := musig2.GenNonces(
+			musig2.WithPublicKey(w.device.pubKey),
+		)
+		require.NoError(t, err)
+		input.MuSig2PubNonces = append(
+			input.MuSig2PubNonces, &psbt.MuSig2PubNonce{
+				PubKey:       w.device.pubKey,
+				AggregateKey: info.ContextKey,
+				TapLeafHash:  info.TapLeafHash,
+				PubNonce:     nonces.PubNonce,
+			},
+		)
+	}
+	requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepWait)
+	(&softwareSigner{key: w.softwareKey}).nonce(t, packet)
+	requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepSign)
+	require.NoError(t, result.addMuSig2Options(packet, &PSBTMuSig2Options{
+		Phase: messages.BTCMuSig2Init_SIGN,
+	}))
+	keyPath := result.tx.MuSig2.Nonces[BTCMuSig2Context{}]
+	require.False(t, keyPath.Skip)
+	require.Len(t, keyPath.Nonces, 2)
+	require.Nil(t, keyPath.TapleafHash)
+	leaf := result.tx.MuSig2.Nonces[BTCMuSig2Context{Position: 1}]
+	require.True(t, leaf.Skip)
+	require.Empty(t, leaf.Nonces)
+	require.Equal(t, leafHash, leaf.TapleafHash)
 }
 
 // leafScriptConfig returns the policy with our key in the key path aggregate

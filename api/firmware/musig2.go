@@ -25,7 +25,7 @@ const (
 )
 
 // btcMuSig2MinVersion is the first firmware version that signs MuSig2 inputs.
-var btcMuSig2MinVersion = semver.NewSemVer(9, 28, 0)
+var btcMuSig2MinVersion = semver.NewSemVer(9, 29, 0)
 
 // SupportsBTCMuSig2 returns true if the device can contribute to BIP-327 MuSig2
 // signing sessions of Taproot wallet policies containing musig() keys.
@@ -33,9 +33,17 @@ func (device *Device) SupportsBTCMuSig2() bool {
 	return device.version.AtLeast(btcMuSig2MinVersion)
 }
 
+// BTCMuSig2Context identifies one MuSig2 context of a transaction: the context
+// at Position in the BTCMuSig2Input contexts of the input at InputIndex.
+type BTCMuSig2Context struct {
+	InputIndex uint32
+	Position   uint32
+}
+
 // BTCMuSig2Options selects what a BTCSign call contributes to the MuSig2 inputs
-// of a transaction. A MuSig2 input is an input whose request carries a
-// BTCMuSig2Input context.
+// of a transaction. A MuSig2 input is an input whose request carries
+// BTCMuSig2Input contexts, one for every aggregate of ours the input can be
+// spent with.
 //
 // There are two ways to sign with the device:
 //   - Two rounds: a NONCE call returns the device's public nonces, which are
@@ -55,12 +63,14 @@ type BTCMuSig2Options struct {
 	// set for SIGN and be empty for NONCE and NONCE_AND_SIGN.
 	SessionID []byte
 
-	// Nonces are the answers to the device's nonce requests, keyed by input
-	// index. They must be present for every MuSig2 input in the SIGN and
+	// Nonces are the answers to the device's nonce requests, keyed by
+	// context. They must be present for every MuSig2 context in the SIGN and
 	// NONCE_AND_SIGN phases: for SIGN, they contain every participant's
 	// public nonce, including the device's; for NONCE_AND_SIGN, every
-	// participant's except the device's.
-	Nonces map[uint32]*messages.BTCMuSig2NoncesRequest
+	// participant's except the device's. A context that cannot be
+	// completed, e.g. because a participant's nonce is missing, is answered
+	// with Skip set instead, and the device contributes nothing to it.
+	Nonces map[BTCMuSig2Context]*messages.BTCMuSig2NoncesRequest
 }
 
 // validate checks the options against the MuSig2 inputs of the transaction.
@@ -78,25 +88,21 @@ func (o *BTCMuSig2Options) validate(tx *BTCTx) error {
 			o.Phase)
 	}
 
-	numMuSig2Inputs := 0
-	for index, input := range tx.Inputs {
-		if input.Input.Musig2 == nil {
-			continue
-		}
-		numMuSig2Inputs++
-
-		_, haveNonces := o.Nonces[uint32(index)]
+	contexts := muSig2Contexts(tx.Inputs)
+	for _, context := range contexts {
+		_, haveNonces := o.Nonces[context]
 		wantNonces := o.Phase != messages.BTCMuSig2Init_NONCE
 		if haveNonces != wantNonces {
 			return errp.Newf("invalid MuSig2 nonces for input %d "+
-				"in phase %v", index, o.Phase)
+				"context %d in phase %v", context.InputIndex,
+				context.Position, o.Phase)
 		}
 	}
-	if numMuSig2Inputs == 0 {
+	if len(contexts) == 0 {
 		return errp.New("MuSig2 options given, but no MuSig2 inputs")
 	}
-	if len(o.Nonces) > numMuSig2Inputs {
-		return errp.New("MuSig2 nonces given for non-MuSig2 inputs")
+	if len(o.Nonces) > len(contexts) {
+		return errp.New("MuSig2 nonces given for unknown contexts")
 	}
 
 	if tx.Bip322Message != nil {
@@ -113,20 +119,35 @@ func (o *BTCMuSig2Options) validate(tx *BTCTx) error {
 	return nil
 }
 
+// muSig2Contexts returns every MuSig2 context of the inputs.
+func muSig2Contexts(inputs []*BTCTxInput) []BTCMuSig2Context {
+	var contexts []BTCMuSig2Context
+	for index, input := range inputs {
+		for position := range input.Input.Musig2 {
+			contexts = append(contexts, BTCMuSig2Context{
+				InputIndex: uint32(index),
+				Position:   uint32(position),
+			})
+		}
+	}
+
+	return contexts
+}
+
 // muSig2Session tracks the device's contributions to the MuSig2 inputs over
 // one BTCSign call.
 type muSig2Session struct {
 	options   *BTCMuSig2Options
 	inputs    []*BTCTxInput
 	sessionID []byte
-	results   map[uint32]*messages.BTCMuSig2Result
+	results   map[BTCMuSig2Context]*messages.BTCMuSig2Result
 }
 
 // newMuSig2Session returns nil if the transaction is signed without MuSig2.
 func newMuSig2Session(tx *BTCTx) (*muSig2Session, error) {
 	if tx.MuSig2 == nil {
 		for index, input := range tx.Inputs {
-			if input.Input.Musig2 != nil {
+			if len(input.Input.Musig2) != 0 {
 				return nil, errp.Newf("input %d is a MuSig2 "+
 					"input, but no MuSig2 options were "+
 					"given", index)
@@ -143,7 +164,7 @@ func newMuSig2Session(tx *BTCTx) (*muSig2Session, error) {
 	return &muSig2Session{
 		options: tx.MuSig2,
 		inputs:  tx.Inputs,
-		results: make(map[uint32]*messages.BTCMuSig2Result),
+		results: make(map[BTCMuSig2Context]*messages.BTCMuSig2Result),
 	}, nil
 }
 
@@ -190,56 +211,100 @@ func (s *muSig2Session) nonceRound() bool {
 	return s != nil && s.options.Phase == messages.BTCMuSig2Init_NONCE
 }
 
-// noncesRequest returns the answer to the device's nonce request for the input
-// with the given index.
-func (s *muSig2Session) noncesRequest(
-	inputIndex uint32) (*messages.BTCMuSig2NoncesRequest, error) {
+// noncesRequest returns the answer to the device's nonce request for the
+// context at the given position of the input with the given index.
+func (s *muSig2Session) noncesRequest(inputIndex,
+	position uint32) (*messages.BTCMuSig2NoncesRequest, error) {
 
 	if s == nil || s.nonceRound() {
 		return nil, errp.New("unexpected MuSig2 nonces request")
 	}
-	request, ok := s.options.Nonces[inputIndex]
+	request, ok := s.options.Nonces[BTCMuSig2Context{
+		InputIndex: inputIndex,
+		Position:   position,
+	}]
 	if !ok {
 		return nil, errp.Newf("unexpected MuSig2 nonces request for "+
-			"input %d", inputIndex)
+			"input %d context %d", inputIndex, position)
 	}
 
 	return request, nil
 }
 
-// collect checks and records the MuSig2 contribution a response carries, if
+// skipped returns true if the device is asked to contribute nothing to the
+// context.
+func (s *muSig2Session) skipped(context BTCMuSig2Context) bool {
+	request, ok := s.options.Nonces[context]
+	return ok && request.Skip
+}
+
+// collect checks and records the MuSig2 contributions a response carries, if
 // any. A contribution can arrive on any response, identified by its own input
-// index rather than by the index of the next request.
+// index and context rather than by the index of the next request.
 func (s *muSig2Session) collect(next *messages.BTCSignNextResponse) error {
-	result := next.Musig2Result
-	if result == nil {
-		return nil
-	}
-	if s == nil {
+	if len(next.Musig2Results) != 0 && s == nil {
 		return errp.New("unexpected MuSig2 contribution")
 	}
+	for _, result := range next.Musig2Results {
+		if err := s.collectResult(result); err != nil {
+			return err
+		}
+	}
 
+	return nil
+}
+
+// collectResult checks and records one MuSig2 contribution.
+func (s *muSig2Session) collectResult(result *messages.BTCMuSig2Result) error {
 	index := result.InputIndex
-	if int(index) >= len(s.inputs) || s.inputs[index].Input.Musig2 == nil {
+	if int(index) >= len(s.inputs) {
 		return errp.Newf("MuSig2 contribution for input %d, which is "+
 			"not a MuSig2 input", index)
 	}
-	if _, ok := s.results[index]; ok {
-		return errp.Newf("duplicate MuSig2 contribution for input %d",
-			index)
+
+	// The context is identified by its key data.
+	var (
+		context  BTCMuSig2Context
+		metadata *messages.BTCMuSig2Input
+	)
+	for position, candidate := range s.inputs[index].Input.Musig2 {
+		sameLeaf := (result.TapleafHash == nil) ==
+			(candidate.TapleafHash == nil) &&
+			bytes.Equal(result.TapleafHash, candidate.TapleafHash)
+		if !bytes.Equal(result.ContextKey, candidate.ContextKey) ||
+			!sameLeaf {
+
+			continue
+		}
+		if metadata != nil {
+			return errp.Newf("ambiguous MuSig2 contribution for "+
+				"input %d", index)
+		}
+		context = BTCMuSig2Context{
+			InputIndex: index,
+			Position:   uint32(position),
+		}
+		metadata = candidate
+	}
+	if metadata == nil {
+		return errp.Newf("MuSig2 contribution for input %d does not "+
+			"match any of its contexts", index)
+	}
+	if s.skipped(context) {
+		return errp.Newf("MuSig2 contribution for skipped context %d "+
+			"of input %d", context.Position, index)
+	}
+	if _, ok := s.results[context]; ok {
+		return errp.Newf("duplicate MuSig2 contribution for input %d "+
+			"context %d", index, context.Position)
 	}
 
-	context := s.inputs[index].Input.Musig2
-	sameLeaf := (result.TapleafHash == nil) == (context.TapleafHash == nil) &&
-		bytes.Equal(result.TapleafHash, context.TapleafHash)
 	isParticipant := slices.ContainsFunc(
-		context.ParticipantPubkeys, func(key []byte) bool {
+		metadata.ParticipantPubkeys, func(key []byte) bool {
 			return bytes.Equal(key, result.ParticipantPubkey)
 		},
 	)
-	if !bytes.Equal(result.ContextKey, context.ContextKey) || !sameLeaf ||
-		!isParticipant {
-
+	if !isParticipant {
 		return errp.Newf("MuSig2 contribution for input %d does not "+
 			"match its context", index)
 	}
@@ -258,13 +323,13 @@ func (s *muSig2Session) collect(next *messages.BTCSignNextResponse) error {
 			"match phase %v", index, s.options.Phase)
 	}
 
-	s.results[index] = result
+	s.results[context] = result
 
 	return nil
 }
 
-// done checks that the device contributed to every MuSig2 input and closed the
-// session it acknowledged.
+// done checks that the device contributed to every MuSig2 context it was not
+// asked to skip, and closed the session it acknowledged.
 func (s *muSig2Session) done(next *messages.BTCSignNextResponse) error {
 	if s == nil {
 		return nil
@@ -273,13 +338,14 @@ func (s *muSig2Session) done(next *messages.BTCSignNextResponse) error {
 	if !bytes.Equal(next.Musig2SessionId, s.sessionID) {
 		return errp.New("the device closed a different MuSig2 session")
 	}
-	for index, input := range s.inputs {
-		if input.Input.Musig2 == nil {
+	for _, context := range muSig2Contexts(s.inputs) {
+		if s.skipped(context) {
 			continue
 		}
-		if _, ok := s.results[uint32(index)]; !ok {
+		if _, ok := s.results[context]; !ok {
 			return errp.Newf("missing MuSig2 contribution for "+
-				"input %d", index)
+				"input %d context %d", context.InputIndex,
+				context.Position)
 		}
 	}
 

@@ -38,21 +38,24 @@ const (
 	// PSBTMuSig2StepNone means the PSBT has no MuSig2 input with our key.
 	PSBTMuSig2StepNone PSBTMuSig2Step = iota
 
-	// PSBTMuSig2StepNonce means we have to contribute a nonce while not
-	// every other participant published theirs yet: sign with the NONCE
-	// phase and keep the session ID for the SIGN phase.
+	// PSBTMuSig2StepNonce means we have to contribute our nonces to every
+	// spend path of ours, and no other participant published every nonce
+	// of one yet: sign with the NONCE phase and keep the session ID for the
+	// SIGN phase.
 	PSBTMuSig2StepNonce
 
-	// PSBTMuSig2StepWait means our nonce is present, but the nonces of
-	// other participants are still missing.
+	// PSBTMuSig2StepWait means our nonces are present, but no spend path
+	// we contributed to has every other participant's nonce yet.
 	PSBTMuSig2StepWait
 
 	// PSBTMuSig2StepSign means every participant's nonce, including ours,
-	// is present: sign with the SIGN phase.
+	// is present for a spend path: sign with the SIGN phase. The spend
+	// paths that are not complete are skipped.
 	PSBTMuSig2StepSign
 
-	// PSBTMuSig2StepNonceAndSign means every other participant published
-	// its nonce and ours is missing: sign with the NONCE_AND_SIGN phase.
+	// PSBTMuSig2StepNonceAndSign means we did not contribute yet, and every
+	// other participant published its nonce for a spend path: sign with
+	// the NONCE_AND_SIGN phase. The other spend paths are skipped.
 	PSBTMuSig2StepNonceAndSign
 
 	// PSBTMuSig2StepDone means our partial signatures are present.
@@ -91,8 +94,10 @@ type muSig2Key struct {
 	// followed by the branch and index the aggregate is derived at.
 	keypath []uint32
 
-	// info is the signing context of a MuSig2 input, nil for outputs.
-	info *psbt.MuSig2SigningInfo
+	// infos are the signing contexts of a MuSig2 input, one for every
+	// aggregate of ours the input can be spent with, in the order the
+	// device gets them. Nil for outputs.
+	infos []*psbt.MuSig2SigningInfo
 }
 
 // fingerprintUint32 converts a 4 byte fingerprint to the representation of
@@ -136,7 +141,7 @@ func findOurMuSig2Participant(ourRootFingerprint uint32,
 	return nil
 }
 
-// completeMuSig2Input determines the signing context of our key in the MuSig2
+// completeMuSig2Input determines the signing contexts of our key in the MuSig2
 // input and the keypath the device expects for it.
 func completeMuSig2Input(packet *psbt.Packet, inputIndex int,
 	key *muSig2Key) error {
@@ -145,16 +150,22 @@ func completeMuSig2Input(packet *psbt.Packet, inputIndex int,
 	if err != nil {
 		return err
 	}
-	if len(infos) != 1 {
-		// The device contributes to exactly one aggregate per input, so
-		// the spend path must have been chosen before signing.
-		return errp.Newf("our key is part of %d MuSig2 spend paths of "+
-			"input %d, but exactly one is required", len(infos),
-			inputIndex)
+	if len(infos) == 0 {
+		return errp.Newf("our key is part of no MuSig2 spend path of "+
+			"input %d", inputIndex)
 	}
-	key.info = infos[0]
+
+	// All aggregates of an input are derived at the same branch and index:
+	// the address the input spends.
+	for _, info := range infos[1:] {
+		if !slices.Equal(info.DerivationPath, infos[0].DerivationPath) {
+			return errp.Newf("the MuSig2 spend paths of input %d "+
+				"are derived differently", inputIndex)
+		}
+	}
+	key.infos = infos
 	key.keypath = slices.Concat(
-		key.participant.Bip32Path, key.info.DerivationPath,
+		key.participant.Bip32Path, infos[0].DerivationPath,
 	)
 
 	return nil
@@ -271,48 +282,53 @@ func muSig2KeyExpression(policy *messages.BTCScriptConfig_Policy,
 	return found[0], nil
 }
 
-// btcMuSig2Input returns the BIP-373 context the device needs for our key in a
-// MuSig2 input.
-func (key *muSig2Key) btcMuSig2Input(
-	policy *messages.BTCScriptConfig_Policy) (*messages.BTCMuSig2Input, error) {
+// btcMuSig2Inputs returns the BIP-373 contexts the device needs for our key in
+// a MuSig2 input.
+func (key *muSig2Key) btcMuSig2Inputs(
+	policy *messages.BTCScriptConfig_Policy) ([]*messages.BTCMuSig2Input, error) {
 
-	record := key.info.Participants
-	expression, err := muSig2KeyExpression(policy, record.Keys)
-	if err != nil {
-		return nil, err
+	inputs := make([]*messages.BTCMuSig2Input, 0, len(key.infos))
+	for _, info := range key.infos {
+		record := info.Participants
+		expression, err := muSig2KeyExpression(policy, record.Keys)
+		if err != nil {
+			return nil, err
+		}
+
+		participants := make([][]byte, len(record.Keys))
+		for index, participant := range record.Keys {
+			participants[index] = participant.SerializeCompressed()
+		}
+
+		inputs = append(inputs, &messages.BTCMuSig2Input{
+			KeyExpression:      expression,
+			AggregateKey:       record.AggregateKey.SerializeCompressed(),
+			ParticipantPubkeys: participants,
+			ContextKey:         info.ContextKey.SerializeCompressed(),
+			TapleafHash:        info.TapLeafHash,
+		})
 	}
 
-	participants := make([][]byte, len(record.Keys))
-	for index, participant := range record.Keys {
-		participants[index] = participant.SerializeCompressed()
-	}
-
-	return &messages.BTCMuSig2Input{
-		KeyExpression:      expression,
-		AggregateKey:       record.AggregateKey.SerializeCompressed(),
-		ParticipantPubkeys: participants,
-		ContextKey:         key.info.ContextKey.SerializeCompressed(),
-		TapleafHash:        key.info.TapLeafHash,
-	}, nil
+	return inputs, nil
 }
 
-// sameMuSig2Context returns true if the given key data belongs to our key's
-// signing context.
-func (key *muSig2Key) sameMuSig2Context(aggregateKey *btcec.PublicKey,
-	tapLeafHash []byte) bool {
+// sameMuSig2Context returns true if the given key data belongs to the signing
+// context.
+func sameMuSig2Context(info *psbt.MuSig2SigningInfo,
+	aggregateKey *btcec.PublicKey, tapLeafHash []byte) bool {
 
-	return aggregateKey.IsEqual(key.info.ContextKey) &&
-		bytes.Equal(tapLeafHash, key.info.TapLeafHash)
+	return aggregateKey.IsEqual(info.ContextKey) &&
+		bytes.Equal(tapLeafHash, info.TapLeafHash)
 }
 
-// pubNonces returns the public nonces of our key's signing context, keyed by
-// the compressed participant key.
-func (key *muSig2Key) pubNonces(
+// pubNonces returns the public nonces of the signing context, keyed by the
+// compressed participant key.
+func pubNonces(info *psbt.MuSig2SigningInfo,
 	input *psbt.PInput) map[string]*psbt.MuSig2PubNonce {
 
 	nonces := make(map[string]*psbt.MuSig2PubNonce)
 	for _, nonce := range input.MuSig2PubNonces {
-		if key.sameMuSig2Context(nonce.AggregateKey, nonce.TapLeafHash) {
+		if sameMuSig2Context(info, nonce.AggregateKey, nonce.TapLeafHash) {
 			nonces[string(nonce.PubKey.SerializeCompressed())] = nonce
 		}
 	}
@@ -320,56 +336,135 @@ func (key *muSig2Key) pubNonces(
 	return nonces
 }
 
-// step returns what we have to do next for the MuSig2 input.
-func (key *muSig2Key) step(input *psbt.PInput) PSBTMuSig2Step {
+// muSig2ContextState is how far a signing context of our key is.
+type muSig2ContextState struct {
+	// ourNonce is true if our public nonce is present.
+	ourNonce bool
+
+	// othersComplete is true if every other participant's nonce is
+	// present.
+	othersComplete bool
+
+	// signed is true if our partial signature is present.
+	signed bool
+}
+
+// state returns how far the signing context of our key is in the input.
+func (key *muSig2Key) state(info *psbt.MuSig2SigningInfo,
+	input *psbt.PInput) muSig2ContextState {
+
+	var state muSig2ContextState
 	for _, partialSig := range input.MuSig2PartialSigs {
 		if partialSig.PubKey.IsEqual(key.pubKey) &&
-			key.sameMuSig2Context(
-				partialSig.AggregateKey, partialSig.TapLeafHash,
+			sameMuSig2Context(
+				info, partialSig.AggregateKey,
+				partialSig.TapLeafHash,
 			) {
 
-			return PSBTMuSig2StepDone
+			state.signed = true
 		}
 	}
 
-	nonces := key.pubNonces(input)
-	_, haveOurs := nonces[string(key.pubKey.SerializeCompressed())]
-	haveOthers := true
-	for _, participant := range key.info.Participants.Keys {
+	nonces := pubNonces(info, input)
+	_, state.ourNonce = nonces[string(key.pubKey.SerializeCompressed())]
+	state.othersComplete = true
+	for _, participant := range info.Participants.Keys {
 		if participant.IsEqual(key.pubKey) {
 			continue
 		}
 		if _, ok := nonces[string(participant.SerializeCompressed())]; !ok {
-			haveOthers = false
+			state.othersComplete = false
 		}
 	}
 
-	switch {
-	case haveOurs && haveOthers:
-		return PSBTMuSig2StepSign
-	case haveOurs:
-		return PSBTMuSig2StepWait
-	case haveOthers:
-		return PSBTMuSig2StepNonceAndSign
+	return state
+}
+
+// signable returns true if the device can contribute its partial signature to
+// a context in the given phase.
+func (state muSig2ContextState) signable(
+	phase messages.BTCMuSig2Init_Phase) bool {
+
+	switch phase {
+	case messages.BTCMuSig2Init_SIGN:
+		return state.ourNonce && state.othersComplete && !state.signed
+
+	case messages.BTCMuSig2Init_NONCE_AND_SIGN:
+		return !state.ourNonce && state.othersComplete
+
 	default:
-		return PSBTMuSig2StepNonce
+		return false
 	}
 }
 
-// noncesRequest returns the answer to the device's nonces request for the input
-// in the given phase: every participant's nonce for SIGN, every participant's
-// but ours for NONCE_AND_SIGN.
-func (key *muSig2Key) noncesRequest(inputIndex int, input *psbt.PInput,
+// muSig2Step returns what we have to do next for the given contexts of our key
+// in a PSBT, following one rule for any number of spend paths: contribute
+// nonces to every spend path while we did not contribute to any, then sign
+// those whose nonces are complete. A spend path one of whose participants
+// never takes part is left alone, so the signers need not agree on the spend
+// path in advance.
+func muSig2Step(states []muSig2ContextState) PSBTMuSig2Step {
+	if len(states) == 0 {
+		return PSBTMuSig2StepNone
+	}
+
+	contributed := slices.ContainsFunc(
+		states, func(state muSig2ContextState) bool {
+			return state.ourNonce || state.signed
+		},
+	)
+	if !contributed {
+		if slices.ContainsFunc(
+			states, func(state muSig2ContextState) bool {
+				return state.signable(
+					messages.BTCMuSig2Init_NONCE_AND_SIGN,
+				)
+			},
+		) {
+
+			return PSBTMuSig2StepNonceAndSign
+		}
+
+		return PSBTMuSig2StepNonce
+	}
+
+	if slices.ContainsFunc(states, func(state muSig2ContextState) bool {
+		return state.signable(messages.BTCMuSig2Init_SIGN)
+	}) {
+
+		return PSBTMuSig2StepSign
+	}
+	if slices.ContainsFunc(states, func(state muSig2ContextState) bool {
+		return state.ourNonce && !state.signed
+	}) {
+
+		return PSBTMuSig2StepWait
+	}
+
+	return PSBTMuSig2StepDone
+}
+
+// noncesRequest returns the answer to the device's nonces request for a
+// context of the input in the given phase: every participant's nonce for SIGN,
+// every participant's but ours for NONCE_AND_SIGN, and a skip if the context
+// cannot be completed in this phase.
+func (key *muSig2Key) noncesRequest(inputIndex int,
+	info *psbt.MuSig2SigningInfo, input *psbt.PInput,
 	phase messages.BTCMuSig2Init_Phase) (*messages.BTCMuSig2NoncesRequest,
 	error) {
 
-	nonces := key.pubNonces(input)
 	request := &messages.BTCMuSig2NoncesRequest{
 		InputIndex:  uint32(inputIndex),
-		ContextKey:  key.info.ContextKey.SerializeCompressed(),
-		TapleafHash: key.info.TapLeafHash,
+		ContextKey:  info.ContextKey.SerializeCompressed(),
+		TapleafHash: info.TapLeafHash,
 	}
-	for _, participant := range key.info.Participants.Keys {
+	if !key.state(info, input).signable(phase) {
+		request.Skip = true
+		return request, nil
+	}
+
+	nonces := pubNonces(info, input)
+	for _, participant := range info.Participants.Keys {
 		ours := participant.IsEqual(key.pubKey)
 		if ours && phase == messages.BTCMuSig2Init_NONCE_AND_SIGN {
 			continue
@@ -391,16 +486,16 @@ func (key *muSig2Key) noncesRequest(inputIndex int, input *psbt.PInput,
 	return request, nil
 }
 
-// addContribution records the device's contribution in the input, replacing a
-// previous contribution of our key to the same signing context.
+// addContribution records the device's contribution to a signing context in
+// the input, replacing a previous contribution of our key to the same context.
 func (key *muSig2Key) addContribution(input *psbt.PInput,
-	result *messages.BTCMuSig2Result) error {
+	info *psbt.MuSig2SigningInfo, result *messages.BTCMuSig2Result) error {
 
 	if len(result.PublicNonce) != 0 {
 		nonce := &psbt.MuSig2PubNonce{
 			PubKey:       key.pubKey,
-			AggregateKey: key.info.ContextKey,
-			TapLeafHash:  key.info.TapLeafHash,
+			AggregateKey: info.ContextKey,
+			TapLeafHash:  info.TapLeafHash,
 		}
 		copy(nonce.PubNonce[:], result.PublicNonce)
 		if err := nonce.Validate(); err != nil {
@@ -426,8 +521,8 @@ func (key *muSig2Key) addContribution(input *psbt.PInput,
 		}
 		sig := &psbt.MuSig2PartialSig{
 			PubKey:       key.pubKey,
-			AggregateKey: key.info.ContextKey,
-			TapLeafHash:  key.info.TapLeafHash,
+			AggregateKey: info.ContextKey,
+			TapLeafHash:  info.TapLeafHash,
 			PartialSig:   partialSig,
 		}
 
@@ -445,11 +540,11 @@ func (key *muSig2Key) addContribution(input *psbt.PInput,
 
 // BTCPSBTMuSig2Step returns what the signer with the given root fingerprint has
 // to do next for the MuSig2 inputs of the PSBT. All MuSig2 inputs are signed in
-// one call, so an error is returned if they are in different states.
+// one call, considering every spend path of ours of every input.
 func BTCPSBTMuSig2Step(packet *psbt.Packet,
 	ourRootFingerprint []byte) (PSBTMuSig2Step, error) {
 
-	step := PSBTMuSig2StepNone
+	var states []muSig2ContextState
 	for inputIndex := range packet.Inputs {
 		input := &packet.Inputs[inputIndex]
 		key := findOurMuSig2Participant(
@@ -463,15 +558,12 @@ func BTCPSBTMuSig2Step(packet *psbt.Packet,
 			return 0, err
 		}
 
-		inputStep := key.step(input)
-		if step != PSBTMuSig2StepNone && inputStep != step {
-			return 0, errp.New("MuSig2 inputs are in different " +
-				"signing states")
+		for _, info := range key.infos {
+			states = append(states, key.state(info, input))
 		}
-		step = inputStep
 	}
 
-	return step, nil
+	return muSig2Step(states), nil
 }
 
 // addMuSig2Options selects the MuSig2 phase of the transaction and answers the
@@ -502,18 +594,26 @@ func (r *psbtConvertResult) addMuSig2Options(packet *psbt.Packet,
 		return nil
 	}
 
-	r.tx.MuSig2.Nonces = make(map[uint32]*messages.BTCMuSig2NoncesRequest)
+	r.tx.MuSig2.Nonces = make(
+		map[BTCMuSig2Context]*messages.BTCMuSig2NoncesRequest,
+	)
 	for inputIndex, key := range r.ourKeys {
 		if key.muSig2 == nil {
 			continue
 		}
-		request, err := key.muSig2.noncesRequest(
-			inputIndex, &packet.Inputs[inputIndex], options.Phase,
-		)
-		if err != nil {
-			return err
+		for position, info := range key.muSig2.infos {
+			request, err := key.muSig2.noncesRequest(
+				inputIndex, info, &packet.Inputs[inputIndex],
+				options.Phase,
+			)
+			if err != nil {
+				return err
+			}
+			r.tx.MuSig2.Nonces[BTCMuSig2Context{
+				InputIndex: uint32(inputIndex),
+				Position:   uint32(position),
+			}] = request
 		}
-		r.tx.MuSig2.Nonces[uint32(inputIndex)] = request
 	}
 
 	return nil

@@ -314,7 +314,8 @@ type PSBTSignOptions struct {
 	Bip322Message []byte
 	// MuSig2 must be set if the PSBT has MuSig2 inputs with our key. The device's public nonces
 	// and partial signatures are added to the PSBT. MuSig2 inputs require ForceScriptConfig to be
-	// the registered policy, and exactly one MuSig2 spend path per input with our key.
+	// the registered policy. The device contributes to every MuSig2 spend path of an input with
+	// our key, as BTCPSBTMuSig2Step describes.
 	MuSig2 *PSBTMuSig2Options
 }
 
@@ -509,7 +510,7 @@ func newBTCTxFromPSBT(
 			return nil, errp.New("our key not found in input")
 		}
 
-		var muSig2Input *messages.BTCMuSig2Input
+		var muSig2Inputs []*messages.BTCMuSig2Input
 		if ourKey.muSig2 != nil {
 			if err := completeMuSig2Input(psbt_, inputIndex, ourKey.muSig2); err != nil {
 				return nil, err
@@ -518,7 +519,7 @@ func newBTCTxFromPSBT(
 			if policy == nil {
 				return nil, errp.New("MuSig2 inputs require a policy script config")
 			}
-			muSig2Input, err = ourKey.muSig2.btcMuSig2Input(policy)
+			muSig2Inputs, err = ourKey.muSig2.btcMuSig2Inputs(policy)
 			if err != nil {
 				return nil, err
 			}
@@ -557,7 +558,7 @@ func newBTCTxFromPSBT(
 				Sequence:          txInput.Sequence,
 				Keypath:           ourKey.keypath(),
 				ScriptConfigIndex: scriptConfigIndex,
-				Musig2:            muSig2Input,
+				Musig2:            muSig2Inputs,
 			},
 			PrevTx:       prevTx,
 			BIP352Pubkey: bip352Pubkey,
@@ -704,11 +705,19 @@ func (device *Device) BTCSignPSBT(
 		psbtInput := &psbt_.Inputs[inputIndex]
 		ourKey := txResult.ourKeys[inputIndex]
 		if ourKey.muSig2 != nil {
-			err := ourKey.muSig2.addContribution(
-				psbtInput, signResult.MuSig2Results[uint32(inputIndex)],
-			)
-			if err != nil {
-				return err
+			for position, info := range ourKey.muSig2.infos {
+				result, ok := signResult.MuSig2Results[BTCMuSig2Context{
+					InputIndex: uint32(inputIndex),
+					Position:   uint32(position),
+				}]
+				// A skipped context has no contribution.
+				if !ok {
+					continue
+				}
+				err := ourKey.muSig2.addContribution(psbtInput, info, result)
+				if err != nil {
+					return err
+				}
 			}
 			continue
 		}

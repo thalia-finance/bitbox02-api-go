@@ -1035,12 +1035,16 @@ type BTCSignNextResponse struct {
 	PrevIndex                  uint32                      `protobuf:"varint,5,opt,name=prev_index,json=prevIndex,proto3" json:"prev_index,omitempty"`
 	AntiKleptoSignerCommitment *AntiKleptoSignerCommitment `protobuf:"bytes,6,opt,name=anti_klepto_signer_commitment,json=antiKleptoSignerCommitment,proto3" json:"anti_klepto_signer_commitment,omitempty"`
 	// Generated output. The host *must* verify its correctness using `silent_payment_dleq_proof`.
-	GeneratedOutputPkscript []byte           `protobuf:"bytes,7,opt,name=generated_output_pkscript,json=generatedOutputPkscript,proto3" json:"generated_output_pkscript,omitempty"`
-	SilentPaymentDleqProof  []byte           `protobuf:"bytes,8,opt,name=silent_payment_dleq_proof,json=silentPaymentDleqProof,proto3" json:"silent_payment_dleq_proof,omitempty"`
-	Musig2SessionId         []byte           `protobuf:"bytes,9,opt,name=musig2_session_id,json=musig2SessionId,proto3" json:"musig2_session_id,omitempty"`
-	Musig2Result            *BTCMuSig2Result `protobuf:"bytes,10,opt,name=musig2_result,json=musig2Result,proto3" json:"musig2_result,omitempty"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	GeneratedOutputPkscript []byte `protobuf:"bytes,7,opt,name=generated_output_pkscript,json=generatedOutputPkscript,proto3" json:"generated_output_pkscript,omitempty"`
+	SilentPaymentDleqProof  []byte `protobuf:"bytes,8,opt,name=silent_payment_dleq_proof,json=silentPaymentDleqProof,proto3" json:"silent_payment_dleq_proof,omitempty"`
+	Musig2SessionId         []byte `protobuf:"bytes,9,opt,name=musig2_session_id,json=musig2SessionId,proto3" json:"musig2_session_id,omitempty"`
+	// Contributions to the MuSig2 contexts of the inputs, see BTCMuSig2Result.
+	Musig2Results []*BTCMuSig2Result `protobuf:"bytes,10,rep,name=musig2_results,json=musig2Results,proto3" json:"musig2_results,omitempty"`
+	// For MUSIG2_NONCES: the position of the context in BTCSignInputRequest.musig2
+	// of the input at `index` the nonces are requested for.
+	Musig2Index   uint32 `protobuf:"varint,11,opt,name=musig2_index,json=musig2Index,proto3" json:"musig2_index,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BTCSignNextResponse) Reset() {
@@ -1136,11 +1140,18 @@ func (x *BTCSignNextResponse) GetMusig2SessionId() []byte {
 	return nil
 }
 
-func (x *BTCSignNextResponse) GetMusig2Result() *BTCMuSig2Result {
+func (x *BTCSignNextResponse) GetMusig2Results() []*BTCMuSig2Result {
 	if x != nil {
-		return x.Musig2Result
+		return x.Musig2Results
 	}
 	return nil
+}
+
+func (x *BTCSignNextResponse) GetMusig2Index() uint32 {
+	if x != nil {
+		return x.Musig2Index
+	}
+	return 0
 }
 
 type BTCSignInputRequest struct {
@@ -1155,9 +1166,13 @@ type BTCSignInputRequest struct {
 	// If omitted, the signature uses the historical deterministic zero-contribution S2C fallback.
 	// This differs from plain RFC6979 and does not provide anti-klepto protection.
 	HostNonceCommitment *AntiKleptoHostNonceCommitment `protobuf:"bytes,8,opt,name=host_nonce_commitment,json=hostNonceCommitment,proto3" json:"host_nonce_commitment,omitempty"`
-	Musig2              *BTCMuSig2Input                `protobuf:"bytes,9,opt,name=musig2,proto3" json:"musig2,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Every MuSig2 context of ours the input can be spent with, e.g. the key path
+	// aggregate and a leaf aggregate. The list must be identical in all rounds of
+	// a session; contexts the host cannot complete are skipped in the nonce
+	// exchange instead, see BTCMuSig2NoncesRequest.skip.
+	Musig2        []*BTCMuSig2Input `protobuf:"bytes,9,rep,name=musig2,proto3" json:"musig2,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *BTCSignInputRequest) Reset() {
@@ -1239,7 +1254,7 @@ func (x *BTCSignInputRequest) GetHostNonceCommitment() *AntiKleptoHostNonceCommi
 	return nil
 }
 
-func (x *BTCSignInputRequest) GetMusig2() *BTCMuSig2Input {
+func (x *BTCSignInputRequest) GetMusig2() []*BTCMuSig2Input {
 	if x != nil {
 		return x.Musig2
 	}
@@ -1445,8 +1460,12 @@ type BTCMuSig2NoncesRequest struct {
 	ContextKey  []byte                 `protobuf:"bytes,2,opt,name=context_key,json=contextKey,proto3" json:"context_key,omitempty"`
 	TapleafHash []byte                 `protobuf:"bytes,3,opt,name=tapleaf_hash,json=tapleafHash,proto3,oneof" json:"tapleaf_hash,omitempty"`
 	// Exactly one record per participant, in arbitrary map order. SIGN includes
-	// ours; NONCE_AND_SIGN includes every participant except us.
-	Nonces        []*BTCMuSig2Nonce `protobuf:"bytes,4,rep,name=nonces,proto3" json:"nonces,omitempty"`
+	// ours; NONCE_AND_SIGN includes every participant except us. Empty if skip
+	// is set.
+	Nonces []*BTCMuSig2Nonce `protobuf:"bytes,4,rep,name=nonces,proto3" json:"nonces,omitempty"`
+	// Contribute nothing to this context, e.g. because a participant's nonce is
+	// missing. A retained secret nonce of the context is destroyed.
+	Skip          bool `protobuf:"varint,5,opt,name=skip,proto3" json:"skip,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1507,6 +1526,13 @@ func (x *BTCMuSig2NoncesRequest) GetNonces() []*BTCMuSig2Nonce {
 		return x.Nonces
 	}
 	return nil
+}
+
+func (x *BTCMuSig2NoncesRequest) GetSkip() bool {
+	if x != nil {
+		return x.Skip
+	}
+	return false
 }
 
 type BTCMuSig2Result struct {
@@ -3271,7 +3297,7 @@ const file_btc_proto_rawDesc = "" +
 	"FormatUnit\x12\v\n" +
 	"\aDEFAULT\x10\x00\x12\a\n" +
 	"\x03SAT\x10\x01B\x11\n" +
-	"\x0f_bip322_message\"\xcd\x05\n" +
+	"\x0f_bip322_message\"\xf2\x05\n" +
 	"\x13BTCSignNextResponse\x12B\n" +
 	"\x04type\x18\x01 \x01(\x0e2..shiftcrypto.bitbox02.BTCSignNextResponse.TypeR\x04type\x12\x14\n" +
 	"\x05index\x18\x02 \x01(\rR\x05index\x12#\n" +
@@ -3282,9 +3308,10 @@ const file_btc_proto_rawDesc = "" +
 	"\x1danti_klepto_signer_commitment\x18\x06 \x01(\v20.shiftcrypto.bitbox02.AntiKleptoSignerCommitmentR\x1aantiKleptoSignerCommitment\x12:\n" +
 	"\x19generated_output_pkscript\x18\a \x01(\fR\x17generatedOutputPkscript\x129\n" +
 	"\x19silent_payment_dleq_proof\x18\b \x01(\fR\x16silentPaymentDleqProof\x12*\n" +
-	"\x11musig2_session_id\x18\t \x01(\fR\x0fmusig2SessionId\x12J\n" +
-	"\rmusig2_result\x18\n" +
-	" \x01(\v2%.shiftcrypto.bitbox02.BTCMuSig2ResultR\fmusig2Result\"\x95\x01\n" +
+	"\x11musig2_session_id\x18\t \x01(\fR\x0fmusig2SessionId\x12L\n" +
+	"\x0emusig2_results\x18\n" +
+	" \x03(\v2%.shiftcrypto.bitbox02.BTCMuSig2ResultR\rmusig2Results\x12!\n" +
+	"\fmusig2_index\x18\v \x01(\rR\vmusig2Index\"\x95\x01\n" +
 	"\x04Type\x12\t\n" +
 	"\x05INPUT\x10\x00\x12\n" +
 	"\n" +
@@ -3305,7 +3332,7 @@ const file_btc_proto_rawDesc = "" +
 	"\akeypath\x18\x06 \x03(\rR\akeypath\x12.\n" +
 	"\x13script_config_index\x18\a \x01(\rR\x11scriptConfigIndex\x12g\n" +
 	"\x15host_nonce_commitment\x18\b \x01(\v23.shiftcrypto.bitbox02.AntiKleptoHostNonceCommitmentR\x13hostNonceCommitment\x12<\n" +
-	"\x06musig2\x18\t \x01(\v2$.shiftcrypto.bitbox02.BTCMuSig2InputR\x06musig2\"\xac\x01\n" +
+	"\x06musig2\x18\t \x03(\v2$.shiftcrypto.bitbox02.BTCMuSig2InputR\x06musig2\"\xac\x01\n" +
 	"\rBTCMuSig2Init\x12?\n" +
 	"\x05phase\x18\x01 \x01(\x0e2).shiftcrypto.bitbox02.BTCMuSig2Init.PhaseR\x05phase\x12\x1d\n" +
 	"\n" +
@@ -3325,14 +3352,15 @@ const file_btc_proto_rawDesc = "" +
 	"\r_tapleaf_hash\"b\n" +
 	"\x0eBTCMuSig2Nonce\x12-\n" +
 	"\x12participant_pubkey\x18\x01 \x01(\fR\x11participantPubkey\x12!\n" +
-	"\fpublic_nonce\x18\x02 \x01(\fR\vpublicNonce\"\xd1\x01\n" +
+	"\fpublic_nonce\x18\x02 \x01(\fR\vpublicNonce\"\xe5\x01\n" +
 	"\x16BTCMuSig2NoncesRequest\x12\x1f\n" +
 	"\vinput_index\x18\x01 \x01(\rR\n" +
 	"inputIndex\x12\x1f\n" +
 	"\vcontext_key\x18\x02 \x01(\fR\n" +
 	"contextKey\x12&\n" +
 	"\ftapleaf_hash\x18\x03 \x01(\fH\x00R\vtapleafHash\x88\x01\x01\x12<\n" +
-	"\x06nonces\x18\x04 \x03(\v2$.shiftcrypto.bitbox02.BTCMuSig2NonceR\x06noncesB\x0f\n" +
+	"\x06nonces\x18\x04 \x03(\v2$.shiftcrypto.bitbox02.BTCMuSig2NonceR\x06nonces\x12\x12\n" +
+	"\x04skip\x18\x05 \x01(\bR\x04skipB\x0f\n" +
 	"\r_tapleaf_hash\"\x8b\x02\n" +
 	"\x0fBTCMuSig2Result\x12\x1f\n" +
 	"\vinput_index\x18\x01 \x01(\rR\n" +
@@ -3545,7 +3573,7 @@ var file_btc_proto_depIdxs = []int32{
 	17, // 14: shiftcrypto.bitbox02.BTCSignInitRequest.musig2:type_name -> shiftcrypto.bitbox02.BTCMuSig2Init
 	7,  // 15: shiftcrypto.bitbox02.BTCSignNextResponse.type:type_name -> shiftcrypto.bitbox02.BTCSignNextResponse.Type
 	45, // 16: shiftcrypto.bitbox02.BTCSignNextResponse.anti_klepto_signer_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoSignerCommitment
-	21, // 17: shiftcrypto.bitbox02.BTCSignNextResponse.musig2_result:type_name -> shiftcrypto.bitbox02.BTCMuSig2Result
+	21, // 17: shiftcrypto.bitbox02.BTCSignNextResponse.musig2_results:type_name -> shiftcrypto.bitbox02.BTCMuSig2Result
 	46, // 18: shiftcrypto.bitbox02.BTCSignInputRequest.host_nonce_commitment:type_name -> shiftcrypto.bitbox02.AntiKleptoHostNonceCommitment
 	18, // 19: shiftcrypto.bitbox02.BTCSignInputRequest.musig2:type_name -> shiftcrypto.bitbox02.BTCMuSig2Input
 	8,  // 20: shiftcrypto.bitbox02.BTCMuSig2Init.phase:type_name -> shiftcrypto.bitbox02.BTCMuSig2Init.Phase

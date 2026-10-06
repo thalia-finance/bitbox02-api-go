@@ -362,9 +362,9 @@ type BTCSignResult struct {
 	// MuSig2SessionID is the session ID the device assigned to the MuSig2 call. After a NONCE
 	// call, it must be passed to the SIGN call.
 	MuSig2SessionID []byte
-	// MuSig2Results contains the device's contribution to each MuSig2 input, keyed by input
-	// index. The Signatures entry of a MuSig2 input is always empty.
-	MuSig2Results map[uint32]*messages.BTCMuSig2Result
+	// MuSig2Results contains the device's contribution to each MuSig2 context it was not asked
+	// to skip. The Signatures entry of a MuSig2 input is always empty.
+	MuSig2Results map[BTCMuSig2Context]*messages.BTCMuSig2Result
 }
 
 func (device *Device) nonAtomicBTCSign(
@@ -469,7 +469,7 @@ func (device *Device) nonAtomicBTCSign(
 
 			// A MuSig2 input yields a MuSig2 contribution instead of a signature, and a
 			// MuSig2 nonce round yields no signature at all.
-			expectSignature := isInputsPass2 && input.Musig2 == nil && !muSig2.nonceRound()
+			expectSignature := isInputsPass2 && len(input.Musig2) == 0 && !muSig2.nonceRound()
 
 			// Anti-Klepto protocol not supported yet for Schnorr signatures.
 			performAntiklepto := expectSignature && !inputIsSchnorr
@@ -609,7 +609,7 @@ func (device *Device) nonAtomicBTCSign(
 				return nil, err
 			}
 		case messages.BTCSignNextResponse_MUSIG2_NONCES:
-			noncesRequest, err := muSig2.noncesRequest(next.Index)
+			noncesRequest, err := muSig2.noncesRequest(next.Index, next.Musig2Index)
 			if err != nil {
 				return nil, err
 			}
