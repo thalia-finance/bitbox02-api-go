@@ -241,13 +241,15 @@ func testMuSig2Nonces() map[BTCMuSig2Context]*messages.BTCMuSig2NoncesRequest {
 // TestBTCSignMuSig2Phases asserts the host side of every MuSig2 phase: the
 // session is announced and acknowledged, every input carries its context, the
 // nonces requests are answered and every contribution is collected, including
-// the one that arrives on DONE.
+// the one that arrives on DONE. A BIP-322 message is signed in the same
+// rounds as a transaction.
 func TestBTCSignMuSig2Phases(t *testing.T) {
 	tests := []struct {
-		name       string
-		options    *BTCMuSig2Options
-		nonce      bool
-		partialSig bool
+		name          string
+		options       *BTCMuSig2Options
+		bip322Message []byte
+		nonce         bool
+		partialSig    bool
 	}{{
 		name: "nonce",
 		options: &BTCMuSig2Options{
@@ -270,6 +272,22 @@ func TestBTCSignMuSig2Phases(t *testing.T) {
 		},
 		nonce:      true,
 		partialSig: true,
+	}, {
+		name: "bip322 nonce",
+		options: &BTCMuSig2Options{
+			Phase: messages.BTCMuSig2Init_NONCE,
+		},
+		bip322Message: []byte("message"),
+		nonce:         true,
+	}, {
+		name: "bip322 sign",
+		options: &BTCMuSig2Options{
+			Phase:     messages.BTCMuSig2Init_SIGN,
+			SessionID: testMuSig2SessionID,
+			Nonces:    testMuSig2Nonces(),
+		},
+		bip322Message: []byte("message"),
+		partialSig:    true,
 	}}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -278,6 +296,7 @@ func TestBTCSignMuSig2Phases(t *testing.T) {
 				muSig2Exchanges(test.nonce, test.partialSig),
 			)
 			scriptConfigs, tx := testMuSig2Tx(test.options)
+			tx.Bip322Message = test.bip322Message
 
 			result, err := device.BTCSign(
 				messages.BTCCoin_TBTC, scriptConfigs, nil, tx,
@@ -299,7 +318,11 @@ func TestBTCSignMuSig2Phases(t *testing.T) {
 				require.Empty(t, result.Signatures[index])
 			}
 
-			init := (*requests)[0].GetBtcSignInit().Musig2
+			signInit := (*requests)[0].GetBtcSignInit()
+			require.Equal(
+				t, test.bip322Message, signInit.Bip322Message,
+			)
+			init := signInit.Musig2
 			require.Equal(t, test.options.Phase, init.Phase)
 			require.Equal(t, test.options.SessionID, init.SessionId)
 			for _, request := range *requests {
@@ -462,12 +485,6 @@ func TestBTCSignMuSig2InvalidOptions(t *testing.T) {
 			delete(tx.MuSig2.Nonces, BTCMuSig2Context{InputIndex: 1})
 		},
 		errMsg: "invalid MuSig2 nonces",
-	}, {
-		name: "bip322",
-		mutate: func(tx *BTCTx) {
-			tx.Bip322Message = []byte("message")
-		},
-		errMsg: "BIP-322",
 	}, {
 		name: "silent payment",
 		mutate: func(tx *BTCTx) {

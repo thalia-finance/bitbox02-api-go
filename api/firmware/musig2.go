@@ -105,10 +105,6 @@ func (o *BTCMuSig2Options) validate(tx *BTCTx) error {
 		return errp.New("MuSig2 nonces given for unknown contexts")
 	}
 
-	if tx.Bip322Message != nil {
-		return errp.New("BIP-322 message signing is not supported " +
-			"with MuSig2")
-	}
 	for _, output := range tx.Outputs {
 		if output.SilentPayment != nil {
 			return errp.New("silent payments are not supported " +
