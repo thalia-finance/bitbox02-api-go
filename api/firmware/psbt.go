@@ -710,8 +710,17 @@ func (device *Device) BTCSignPSBT(
 					InputIndex: uint32(inputIndex),
 					Position:   uint32(position),
 				}]
-				// A skipped context has no contribution.
+				// A skipped context has no contribution. In
+				// a SIGN round, it lost the nonce the device
+				// kept for it.
 				if !ok {
+					if options.MuSig2.Phase ==
+						messages.BTCMuSig2Init_SIGN {
+
+						ourKey.muSig2.dropDeadNonce(
+							psbtInput, info,
+						)
+					}
 					continue
 				}
 				err := ourKey.muSig2.addContribution(psbtInput, info, result)

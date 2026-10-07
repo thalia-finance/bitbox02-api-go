@@ -39,13 +39,14 @@ const (
 	PSBTMuSig2StepNone PSBTMuSig2Step = iota
 
 	// PSBTMuSig2StepNonce means we have to contribute our nonces to every
-	// spend path of ours, and no other participant published every nonce
-	// of one yet: sign with the NONCE phase and keep the session ID for the
-	// SIGN phase.
+	// spend path of ours of an input we did not sign yet, and no other
+	// participant published every nonce of one yet: sign with the NONCE
+	// phase and keep the session ID for the SIGN phase.
 	PSBTMuSig2StepNonce
 
 	// PSBTMuSig2StepWait means our nonces are present, but no spend path
-	// we contributed to has every other participant's nonce yet.
+	// we contributed to of an input we did not sign yet has every other
+	// participant's nonce yet.
 	PSBTMuSig2StepWait
 
 	// PSBTMuSig2StepSign means every participant's nonce, including ours,
@@ -58,7 +59,8 @@ const (
 	// the NONCE_AND_SIGN phase. The other spend paths are skipped.
 	PSBTMuSig2StepNonceAndSign
 
-	// PSBTMuSig2StepDone means our partial signatures are present.
+	// PSBTMuSig2StepDone means our partial signature is present for a
+	// spend path of every MuSig2 input with our key.
 	PSBTMuSig2StepDone
 )
 
@@ -397,20 +399,41 @@ func (state muSig2ContextState) signable(
 	}
 }
 
-// muSig2Step returns what we have to do next for the given contexts of our key
-// in a PSBT, following one rule for any number of spend paths: contribute
-// nonces to every spend path while we did not contribute to any, then sign
-// those whose nonces are complete. A spend path one of whose participants
-// never takes part is left alone, so the signers need not agree on the spend
-// path in advance.
-func muSig2Step(states []muSig2ContextState) PSBTMuSig2Step {
-	if len(states) == 0 {
+// muSig2Step returns what we have to do next for the contexts of our key in a
+// PSBT, given by input, following one rule for any number of spend paths:
+// contribute nonces to every spend path while we did not contribute to any,
+// then sign those whose nonces are complete. A spend path one of whose
+// participants never takes part is left alone, so the signers need not agree
+// on the spend path in advance.
+//
+// An input we signed a spend path of is done: its other spend paths are
+// alternatives of ours, not needed anymore. The inputs we did not sign yet
+// decide the step. One whose nonce of ours a SIGN round destroyed, as it could
+// not be completed yet, needs a new NONCE round.
+func muSig2Step(inputs [][]muSig2ContextState) PSBTMuSig2Step {
+	if len(inputs) == 0 {
 		return PSBTMuSig2StepNone
+	}
+
+	var states []muSig2ContextState
+	for _, contexts := range inputs {
+		if slices.ContainsFunc(
+			contexts, func(state muSig2ContextState) bool {
+				return state.signed
+			},
+		) {
+
+			continue
+		}
+		states = append(states, contexts...)
+	}
+	if len(states) == 0 {
+		return PSBTMuSig2StepDone
 	}
 
 	contributed := slices.ContainsFunc(
 		states, func(state muSig2ContextState) bool {
-			return state.ourNonce || state.signed
+			return state.ourNonce
 		},
 	)
 	if !contributed {
@@ -435,13 +458,13 @@ func muSig2Step(states []muSig2ContextState) PSBTMuSig2Step {
 		return PSBTMuSig2StepSign
 	}
 	if slices.ContainsFunc(states, func(state muSig2ContextState) bool {
-		return state.ourNonce && !state.signed
+		return state.ourNonce
 	}) {
 
 		return PSBTMuSig2StepWait
 	}
 
-	return PSBTMuSig2StepDone
+	return PSBTMuSig2StepNonce
 }
 
 // noncesRequest returns the answer to the device's nonces request for a
@@ -542,13 +565,34 @@ func (key *muSig2Key) addContribution(input *psbt.PInput,
 	return nil
 }
 
+// dropDeadNonce removes our public nonce from a signing context the device
+// skipped in a SIGN round, unless our partial signature is in it. Skipping
+// destroys the secret nonce the device kept for the context, so the public
+// nonce cannot sign anymore, and a new NONCE round has to replace it.
+func (key *muSig2Key) dropDeadNonce(input *psbt.PInput,
+	info *psbt.MuSig2SigningInfo) {
+
+	if key.state(info, input).signed {
+		return
+	}
+	input.MuSig2PubNonces = slices.DeleteFunc(
+		input.MuSig2PubNonces, func(nonce *psbt.MuSig2PubNonce) bool {
+			return nonce.PubKey.IsEqual(key.pubKey) &&
+				sameMuSig2Context(
+					info, nonce.AggregateKey,
+					nonce.TapLeafHash,
+				)
+		},
+	)
+}
+
 // BTCPSBTMuSig2Step returns what the signer with the given root fingerprint has
 // to do next for the MuSig2 inputs of the PSBT. All MuSig2 inputs are signed in
 // one call, considering every spend path of ours of every input.
 func BTCPSBTMuSig2Step(packet *psbt.Packet,
 	ourRootFingerprint []byte) (PSBTMuSig2Step, error) {
 
-	var states []muSig2ContextState
+	var inputs [][]muSig2ContextState
 	for inputIndex := range packet.Inputs {
 		input := &packet.Inputs[inputIndex]
 		key := findOurMuSig2Participant(
@@ -562,12 +606,14 @@ func BTCPSBTMuSig2Step(packet *psbt.Packet,
 			return 0, err
 		}
 
+		states := make([]muSig2ContextState, 0, len(key.infos))
 		for _, info := range key.infos {
 			states = append(states, key.state(info, input))
 		}
+		inputs = append(inputs, states)
 	}
 
-	return muSig2Step(states), nil
+	return muSig2Step(inputs), nil
 }
 
 // addMuSig2Options selects the MuSig2 phase of the transaction and answers the

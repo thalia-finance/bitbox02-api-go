@@ -226,10 +226,11 @@ func (w *muSig2Wallet) newPSBT(t *testing.T) *psbt.Packet {
 	return packet
 }
 
-// softwareSigner is the software cosigner. It keeps its secret nonce between
-// its two contributions.
+// softwareSigner is the software cosigner of one input, by default the first.
+// It keeps its secret nonce between its two contributions.
 type softwareSigner struct {
 	key      *btcec.PrivateKey
+	input    int
 	secNonce *[musig2.SecNonceSize]byte
 }
 
@@ -237,14 +238,14 @@ type softwareSigner struct {
 func (s *softwareSigner) nonce(t *testing.T, packet *psbt.Packet) {
 	t.Helper()
 
-	info := muSig2SigningInfo(t, packet, s.key.PubKey())
+	info := muSig2SigningInfo(t, packet, s.input, s.key.PubKey())
 	nonces, err := musig2.GenNonces(musig2.WithPublicKey(s.key.PubKey()))
 	require.NoError(t, err)
 	s.secNonce = &nonces.SecNonce
 
 	updater, err := psbt.NewUpdater(packet)
 	require.NoError(t, err)
-	require.NoError(t, updater.AddInMuSig2PubNonce(0, &psbt.MuSig2PubNonce{
+	require.NoError(t, updater.AddInMuSig2PubNonce(s.input, &psbt.MuSig2PubNonce{
 		PubKey:       s.key.PubKey(),
 		AggregateKey: info.ContextKey,
 		TapLeafHash:  info.TapLeafHash,
@@ -257,17 +258,18 @@ func (s *softwareSigner) nonce(t *testing.T, packet *psbt.Packet) {
 func (s *softwareSigner) sign(t *testing.T, packet *psbt.Packet) {
 	t.Helper()
 
-	info := muSig2SigningInfo(t, packet, s.key.PubKey())
+	info := muSig2SigningInfo(t, packet, s.input, s.key.PubKey())
+	input := &packet.Inputs[s.input]
 	var pubNonces [][musig2.PubNonceSize]byte
 	for _, participant := range info.Participants.Keys {
-		index := slices.IndexFunc(packet.Inputs[0].MuSig2PubNonces,
+		index := slices.IndexFunc(input.MuSig2PubNonces,
 			func(nonce *psbt.MuSig2PubNonce) bool {
 				return nonce.PubKey.IsEqual(participant)
 			},
 		)
 		require.GreaterOrEqual(t, index, 0)
 		pubNonces = append(
-			pubNonces, packet.Inputs[0].MuSig2PubNonces[index].PubNonce,
+			pubNonces, input.MuSig2PubNonces[index].PubNonce,
 		)
 	}
 	combinedNonce, err := musig2.AggregateNonces(pubNonces)
@@ -283,7 +285,7 @@ func (s *softwareSigner) sign(t *testing.T, packet *psbt.Packet) {
 
 	updater, err := psbt.NewUpdater(packet)
 	require.NoError(t, err)
-	_, err = updater.SignMuSig2(0, &psbt.MuSig2PartialSig{
+	_, err = updater.SignMuSig2(s.input, &psbt.MuSig2PartialSig{
 		PubKey:       s.key.PubKey(),
 		AggregateKey: info.ContextKey,
 		TapLeafHash:  info.TapLeafHash,
@@ -292,12 +294,14 @@ func (s *softwareSigner) sign(t *testing.T, packet *psbt.Packet) {
 	require.NoError(t, err)
 }
 
-func muSig2SigningInfo(t *testing.T, packet *psbt.Packet,
+// muSig2SigningInfo returns the one signing context of the participant in the
+// input.
+func muSig2SigningInfo(t *testing.T, packet *psbt.Packet, input int,
 	participant *btcec.PublicKey) *psbt.MuSig2SigningInfo {
 
 	t.Helper()
 
-	infos, err := psbt.MuSig2SigningInfos(packet, 0, participant)
+	infos, err := psbt.MuSig2SigningInfos(packet, input, participant)
 	require.NoError(t, err)
 	require.Len(t, infos, 1)
 
@@ -315,26 +319,56 @@ func requireMuSig2Step(t *testing.T, packet *psbt.Packet,
 	require.Equal(t, want, step)
 }
 
-// requireValidSpend finalizes the PSBT and runs the transaction through the
-// script engine.
+// requireValidSpend finalizes the PSBT and runs every input of the transaction
+// through the script engine.
 func requireValidSpend(t *testing.T, packet *psbt.Packet) {
 	t.Helper()
 
 	require.NoError(t, psbt.MaybeFinalizeAll(packet))
 	tx, err := psbt.Extract(packet)
 	require.NoError(t, err)
-	require.Len(t, tx.TxIn[0].Witness, 1)
 
-	prevOut := packet.Inputs[0].WitnessUtxo
-	fetcher := txscript.NewCannedPrevOutputFetcher(
-		prevOut.PkScript, prevOut.Value,
-	)
-	engine, err := txscript.NewEngine(
-		prevOut.PkScript, tx, 0, txscript.StandardVerifyFlags, nil,
-		txscript.NewTxSigHashes(tx, fetcher), prevOut.Value, fetcher,
-	)
-	require.NoError(t, err)
-	require.NoError(t, engine.Execute())
+	fetcher := txscript.NewMultiPrevOutFetcher(nil)
+	for index, txIn := range tx.TxIn {
+		require.Len(t, txIn.Witness, 1)
+		fetcher.AddPrevOut(
+			txIn.PreviousOutPoint, packet.Inputs[index].WitnessUtxo,
+		)
+	}
+	sigHashes := txscript.NewTxSigHashes(tx, fetcher)
+	for index := range tx.TxIn {
+		prevOut := packet.Inputs[index].WitnessUtxo
+		engine, err := txscript.NewEngine(
+			prevOut.PkScript, tx, index, txscript.StandardVerifyFlags,
+			nil, sigHashes, prevOut.Value, fetcher,
+		)
+		require.NoError(t, err)
+		require.NoError(t, engine.Execute())
+	}
+}
+
+// addInput adds an input spending a wallet UTXO at /0/index to the PSBT.
+func (w *muSig2Wallet) addInput(t *testing.T, packet *psbt.Packet,
+	index uint32) {
+
+	t.Helper()
+
+	internalKey, derivations, pkScript := w.derivations(t, 0, index)
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Hash: chainhash.Hash{byte(index + 1)},
+		},
+		Sequence: wire.MaxTxInSequenceNum,
+	})
+	packet.Inputs = append(packet.Inputs, psbt.PInput{
+		WitnessUtxo:            wire.NewTxOut(100_000, pkScript),
+		TaprootInternalKey:     internalKey,
+		TaprootBip32Derivation: derivations,
+		MuSig2Participants: []*psbt.MuSig2Participants{{
+			AggregateKey: w.aggregate,
+			Keys:         w.sorted,
+		}},
+	})
 }
 
 // TestSimulatorBTCSignPSBTMuSig2 signs a key path spend of a
@@ -436,7 +470,64 @@ func TestSimulatorBTCSignPSBTMuSig2(t *testing.T) {
 				messages.BTCCoin_TBTC, packet, opts,
 			))
 			require.Len(t, packet.Inputs[0].MuSig2PartialSigs, 2)
+
+			// The leaf's nonce is gone with the skipped context,
+			// and the signed input is done.
+			require.Len(t, packet.Inputs[0].MuSig2PubNonces, 2)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepDone)
+			requireValidSpend(t, packet)
+		})
+
+		t.Run("inputs complete at different times", func(t *testing.T) {
+			// The cosigner of the second input contributes after
+			// the device signed the first one. The SIGN round
+			// skips the second input, which destroys the device's
+			// nonce for it, so it takes a new NONCE round.
+			packet := wallet.newPSBT(t)
+			wallet.addInput(t, packet, 1)
+			first := &softwareSigner{key: wallet.softwareKey}
+			second := &softwareSigner{
+				key: wallet.softwareKey, input: 1,
+			}
+
+			opts := options(messages.BTCMuSig2Init_NONCE, nil)
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
 			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepWait)
+
+			first.nonce(t, packet)
+			first.sign(t, packet)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepSign)
+			opts.MuSig2.Phase = messages.BTCMuSig2Init_SIGN
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
+			require.Len(t, packet.Inputs[0].MuSig2PartialSigs, 2)
+			require.Empty(t, packet.Inputs[1].MuSig2PubNonces)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepNonce)
+
+			// The new NONCE round leaves the signed input alone.
+			signedNonces := slices.Clone(
+				packet.Inputs[0].MuSig2PubNonces,
+			)
+			opts = options(messages.BTCMuSig2Init_NONCE, nil)
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
+			require.Equal(
+				t, signedNonces, packet.Inputs[0].MuSig2PubNonces,
+			)
+			require.Len(t, packet.Inputs[1].MuSig2PubNonces, 1)
+
+			second.nonce(t, packet)
+			second.sign(t, packet)
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepSign)
+			opts.MuSig2.Phase = messages.BTCMuSig2Init_SIGN
+			require.NoError(t, device.BTCSignPSBT(
+				messages.BTCCoin_TBTC, packet, opts,
+			))
+			requireMuSig2Step(t, packet, fingerprint, PSBTMuSig2StepDone)
 			requireValidSpend(t, packet)
 		})
 

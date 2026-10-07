@@ -121,7 +121,7 @@ func TestNewBTCTxFromPSBTMuSig2(t *testing.T) {
 		w.sorted[0].SerializeCompressed(), w.sorted[1].SerializeCompressed(),
 	}, context.ParticipantPubkeys)
 	require.Nil(t, context.TapleafHash)
-	info := muSig2SigningInfo(t, packet, w.device.pubKey)
+	info := muSig2SigningInfo(t, packet, 0, w.device.pubKey)
 	require.Equal(t, info.ContextKey.SerializeCompressed(), context.ContextKey)
 
 	change := result.tx.Outputs[1]
@@ -365,6 +365,77 @@ func leafScriptConfig(t *testing.T, w *muSig2Wallet,
 	}
 }
 
+// TestMuSig2StepPerInput asserts that an input we signed a spend path of is
+// done, and that the inputs we did not sign yet decide the step, also when a
+// SIGN round destroyed our nonce for one of them.
+func TestMuSig2StepPerInput(t *testing.T) {
+	fresh := muSig2ContextState{}
+	waiting := muSig2ContextState{ourNonce: true}
+	complete := muSig2ContextState{ourNonce: true, othersComplete: true}
+	othersOnly := muSig2ContextState{othersComplete: true}
+	signed := muSig2ContextState{
+		ourNonce: true, othersComplete: true, signed: true,
+	}
+
+	tests := []struct {
+		name   string
+		inputs [][]muSig2ContextState
+		want   PSBTMuSig2Step
+	}{{
+		name: "no MuSig2 input",
+		want: PSBTMuSig2StepNone,
+	}, {
+		name:   "fresh",
+		inputs: [][]muSig2ContextState{{fresh}},
+		want:   PSBTMuSig2StepNonce,
+	}, {
+		name:   "waiting for the others",
+		inputs: [][]muSig2ContextState{{waiting}},
+		want:   PSBTMuSig2StepWait,
+	}, {
+		name:   "nonces complete",
+		inputs: [][]muSig2ContextState{{complete}},
+		want:   PSBTMuSig2StepSign,
+	}, {
+		name:   "contributing last",
+		inputs: [][]muSig2ContextState{{othersOnly}},
+		want:   PSBTMuSig2StepNonceAndSign,
+	}, {
+		name:   "signed",
+		inputs: [][]muSig2ContextState{{signed}},
+		want:   PSBTMuSig2StepDone,
+	}, {
+		// The leaf's nonce of an input whose key path we signed is
+		// not needed anymore.
+		name:   "signed one spend path of an input",
+		inputs: [][]muSig2ContextState{{signed, waiting}},
+		want:   PSBTMuSig2StepDone,
+	}, {
+		// A SIGN round skipped the second input and destroyed our
+		// nonce for it.
+		name:   "nonce of an input destroyed",
+		inputs: [][]muSig2ContextState{{signed}, {fresh}},
+		want:   PSBTMuSig2StepNonce,
+	}, {
+		name:   "one input signed, another waiting",
+		inputs: [][]muSig2ContextState{{signed}, {waiting}},
+		want:   PSBTMuSig2StepWait,
+	}, {
+		name:   "one input signed, another complete",
+		inputs: [][]muSig2ContextState{{signed}, {complete}},
+		want:   PSBTMuSig2StepSign,
+	}, {
+		name:   "one input signed, we contribute last to another",
+		inputs: [][]muSig2ContextState{{signed}, {othersOnly}},
+		want:   PSBTMuSig2StepNonceAndSign,
+	}}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.want, muSig2Step(test.inputs))
+		})
+	}
+}
+
 // newSignedMuSig2PSBT returns the PSBT of the wallet with the device's nonce and
 // both partial signatures in it, and the device's key and signing context.
 func newSignedMuSig2PSBT(t *testing.T) (*psbt.Packet, *muSig2Key,
@@ -410,4 +481,22 @@ func TestMuSig2AddContributionKeepsSignedNonce(t *testing.T) {
 	))
 	require.Equal(t, nonces, input.MuSig2PubNonces)
 	requireValidSpend(t, packet)
+}
+
+// TestMuSig2DropDeadNonce asserts that only our nonce of a context we did not
+// sign is dropped after the device skipped it in a SIGN round.
+func TestMuSig2DropDeadNonce(t *testing.T) {
+	packet, key, info := newSignedMuSig2PSBT(t)
+	input := &packet.Inputs[0]
+	nonces := slices.Clone(input.MuSig2PubNonces)
+
+	// Signed: our nonce stays.
+	key.dropDeadNonce(input, info)
+	require.Equal(t, nonces, input.MuSig2PubNonces)
+
+	// Not signed: only our nonce goes.
+	input.MuSig2PartialSigs = nil
+	key.dropDeadNonce(input, info)
+	require.Len(t, input.MuSig2PubNonces, 1)
+	require.False(t, input.MuSig2PubNonces[0].PubKey.IsEqual(key.pubKey))
 }
