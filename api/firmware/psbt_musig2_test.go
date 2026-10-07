@@ -364,3 +364,50 @@ func leafScriptConfig(t *testing.T, w *muSig2Wallet,
 		Keypath: muSig2TestKeypath,
 	}
 }
+
+// newSignedMuSig2PSBT returns the PSBT of the wallet with the device's nonce and
+// both partial signatures in it, and the device's key and signing context.
+func newSignedMuSig2PSBT(t *testing.T) (*psbt.Packet, *muSig2Key,
+	*psbt.MuSig2SigningInfo) {
+
+	t.Helper()
+
+	w := newTestMuSig2Wallet(t)
+	_, deviceKey := newSoftwareParticipant(t, "device")
+	packet := w.newPSBT(t)
+	device := &softwareSigner{key: deviceKey}
+	software := &softwareSigner{key: w.softwareKey}
+	device.nonce(t, packet)
+	software.nonce(t, packet)
+	device.sign(t, packet)
+	software.sign(t, packet)
+
+	result, err := newBTCTxFromPSBT(
+		btcMuSig2MinVersion, packet, w.device.fingerprint,
+		&PSBTSignOptions{ForceScriptConfig: w.scriptConfig},
+	)
+	require.NoError(t, err)
+	key := result.ourKeys[0].muSig2
+	require.Len(t, key.infos, 1)
+
+	return packet, key, key.infos[0]
+}
+
+// TestMuSig2AddContributionKeepsSignedNonce asserts that a new nonce of the
+// device never replaces its nonce in a context its partial signature is in,
+// which the finalizer pairs the partial signature with.
+func TestMuSig2AddContributionKeepsSignedNonce(t *testing.T) {
+	packet, key, info := newSignedMuSig2PSBT(t)
+	input := &packet.Inputs[0]
+	nonces := slices.Clone(input.MuSig2PubNonces)
+
+	fresh, err := musig2.GenNonces(musig2.WithPublicKey(key.pubKey))
+	require.NoError(t, err)
+	require.NoError(t, key.addContribution(
+		input, info, &messages.BTCMuSig2Result{
+			PublicNonce: fresh.PubNonce[:],
+		},
+	))
+	require.Equal(t, nonces, input.MuSig2PubNonces)
+	requireValidSpend(t, packet)
+}

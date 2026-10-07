@@ -488,10 +488,14 @@ func (key *muSig2Key) noncesRequest(inputIndex int,
 
 // addContribution records the device's contribution to a signing context in
 // the input, replacing a previous contribution of our key to the same context.
+// A new nonce for a context our partial signature is already in is dropped:
+// the partial signature was made with our nonce in the PSBT, which the
+// finalizer pairs it with, and the device never signs the context again.
 func (key *muSig2Key) addContribution(input *psbt.PInput,
 	info *psbt.MuSig2SigningInfo, result *messages.BTCMuSig2Result) error {
 
-	if len(result.PublicNonce) != 0 {
+	signed := key.state(info, input).signed
+	if len(result.PublicNonce) != 0 && !signed {
 		nonce := &psbt.MuSig2PubNonce{
 			PubKey:       key.pubKey,
 			AggregateKey: info.ContextKey,
